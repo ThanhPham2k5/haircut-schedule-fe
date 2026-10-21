@@ -100,6 +100,9 @@ export default function Navbar() {
             <Link href="/auth/customer">
               <Button size="sm">Đăng nhập</Button>
             </Link>
+            <Link href="/auth/customer?tab=register">
+              <Button size="sm">Đăng ký</Button>
+            </Link>
           </div>
         )}
       </div>

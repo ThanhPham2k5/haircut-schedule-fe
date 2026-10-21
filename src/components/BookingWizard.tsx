@@ -3,7 +3,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { Booking, Service, User } from "@/lib/types";
 import { useRouter } from "next/router";
-import { format } from "date-fns";
+import { addDays, format } from "date-fns";
 import { useEffect, useState } from "react";
 import {
   getBookings,
@@ -12,7 +12,8 @@ import {
   saveBookings,
 } from "@/lib/mockData";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Badge, Check, Clock } from "lucide-react";
+import { Badge, Check, Clock, Scissors } from "lucide-react";
+import { Button } from "./ui/button";
 
 const TIME_SLOTS = [
   "08:00",
@@ -148,8 +149,9 @@ export default function BookingWizard() {
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             {MOCK_SERVICES.map((service) => {
+              // check the service is selected or not
               const isSelected = selectedServices.some(
-                (s) => s.id === service.id,
+                (s) => service.id === s.id,
               );
               return (
                 <div
@@ -185,6 +187,160 @@ export default function BookingWizard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Step 2: Choose Barber and Date */}
+      {step === 2 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bước 2: Chọn thợ cắt tóc và ngày hẹn</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <label className="text-sm font-medium mb-3 block">
+                Chọn thợ:
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                {barbers.map((barber) => (
+                  <div
+                    key={barber.id}
+                    onClick={() => setSelectedBarber(barber)}
+                    className={`p-4 border rounded-lg cursor-pointer flex items-center gap-3 ${selectedBarber?.id === barber.id ? "border-primary bg-primary/5" : "hover:border-slate-300"}`}
+                  >
+                    <Scissors className="w-5 h-5 text-primary" />
+                    <div>
+                      <p className="font-semibold">{barber.full_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Thợ cắt chính
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-3 block">
+                Chọn ngày:
+              </label>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {[0, 1, 2, 3, 4, 5, 6].map((offset) => {
+                  const date = addDays(new Date(), offset);
+                  const dateStr = format(date, "DD-MM-yyyy");
+                  const isSelected = selectedDate === dateStr;
+                  return (
+                    <Button
+                      key={dateStr}
+                      type="button"
+                      variant={isSelected ? "default" : "outline"}
+                      className="flex-col h-auto py-3 px-4 min-w-22.5"
+                      onClick={() => setSelectedDate(dateStr)}
+                    >
+                      <span className="text-xs">{format(date, "EEE")}</span>
+                      <span className="text-lg font-bold">
+                        {format(date, "dd/MM")}
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 3: Time Grid */}
+      {step === 3 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bước 3: Chọn khung giờ hẹn</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-4">
+              * Ô màu xanh là giờ còn trống. Ô màu xám gạch ngang là giờ đã có
+              khách đặt.
+            </p>
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
+              {TIME_SLOTS.map((time) => {
+                const booked = isSlotBooked(time);
+                const isSelected = selectedTime === time;
+
+                return (
+                  <Button
+                    key={time}
+                    disabled={booked}
+                    variant={
+                      isSelected ? "default" : booked ? "ghost" : "outline"
+                    }
+                    onClick={() => setSelectedTime(time)}
+                  >
+                    {time}
+                  </Button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 4: Confirm Information */}
+      {step === 4 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bước 4: Xác nhận thông tin lịch hẹn</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-slate-50 p-4 rounded-lg space-y-2 text-sm">
+              <p>
+                <strong>Thợ phục vụ:</strong> {selectedBarber?.full_name}
+              </p>
+              <p>
+                <strong>Thời gian:</strong> {selectedTime} - Ngày {selectedDate}
+              </p>
+              <p>
+                <strong>Tổng thời gian dự kiến:</strong> {totalDuration} phút
+              </p>
+              <p>
+                <strong>Các dịch vụ:</strong>{" "}
+                {selectedServices.map((s) => s.name).join(", ")}
+              </p>
+              <hr />
+              <p className="text-base font-bold text-primary">
+                Tổng chi phí: {totalPrice.toLocaleString("vi-VN")} đ
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step Navigation */}
+      <div className="flex justify-between items-center pt-4">
+        {step > 1 && (
+          <Button variant="outline" onClick={() => setStep(step - 1)}>
+            Quay lại
+          </Button>
+        )}
+        <div className="ml-auto">
+          {step < 4 ? (
+            <Button
+              disabled={
+                (step === 1 && selectedServices.length === 0) ||
+                (step === 2 && (!selectedBarber || !selectedDate)) ||
+                (step === 3 && !selectedTime)
+              }
+              onClick={() => setStep(step + 1)}
+            >
+              Tiếp theo
+            </Button>
+          ) : (
+            <Button
+              onClick={handleConfirmBooking}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              Xác nhận đặt lịch
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

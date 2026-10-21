@@ -42,7 +42,7 @@ export default function AuthGuard({ children, allowRoles }: AuthGuardProps) {
         </div>
       </div>
     );
-
-    return <>{children}</>;
   }
+
+  return <>{children}</>;
 }
