@@ -114,12 +114,8 @@ function BookingContent() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
-  // Mặc định chọn dịch vụ đầu tiên / thợ đầu tiên khi dữ liệu về
-  useEffect(() => {
-    if (selectedServiceIds.length === 0 && services.length > 0) {
-      setSelectedServiceIds([services[0].id]);
-    }
-  }, [services, selectedServiceIds]);
+  // Không tự chọn dịch vụ: khách phải tự chọn, nút "Tiếp tục" sẽ bị disable cho tới khi chọn ít nhất 1
+  // Mặc định chọn thợ đầu tiên khi dữ liệu về
   useEffect(() => {
     if (!selectedBarberId && barbers.length > 0)
       setSelectedBarberId(barbers[0].id);
