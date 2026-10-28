@@ -8,14 +8,12 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  KeyRound,
   Lock,
   LogOut,
   Mail,
   Phone,
   RotateCcw,
   Scissors,
-  ShieldCheck,
   User as UserIcon,
 } from "lucide-react";
 import { Footer } from "@/components/Footer";
@@ -29,22 +27,24 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { FieldError, errorRing } from "@/components/FieldError";
 import { useAuth, ROLE_NAMES } from "@/providers/auth-provider";
 import { getErrorMessage, reportError } from "@/lib/errors";
-import { loginSchema, otpSchema, registerSchema } from "@/lib/schemas";
+import { loginSchema, registerSchema } from "@/lib/schemas";
 import { validateWithToast, type FieldErrors } from "@/lib/validation";
 
 function getSafeRedirect(): string {
   if (typeof window === "undefined") return "/customer/booking";
   const target = new URLSearchParams(window.location.search).get("redirect");
   // Chỉ cho phép đường dẫn nội bộ, chặn open-redirect (//evil.com)
-  return target && target.startsWith("/") && !target.startsWith("//") ? target : "/customer/booking";
+  return target && target.startsWith("/") && !target.startsWith("//")
+    ? target
+    : "/customer/booking";
 }
 
 export default function CustomerAuthPage() {
   const router = useRouter();
-  const { user, loading, signIn, signUp, verifyEmailOtp, resendSignupOtp, signOut } = useAuth();
+  const { user, loading, signIn, signUp, resendSignupOtp, signOut } = useAuth();
 
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [step, setStep] = useState<"form" | "otp">("form");
+  const [step, setStep] = useState<"form" | "check-email">("form");
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
 
@@ -61,10 +61,11 @@ export default function CustomerAuthPage() {
 
   // Xác thực OTP
   const [otpEmail, setOtpEmail] = useState("");
-  const [otpInput, setOtpInput] = useState("");
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("mode") === "register") {
+    if (
+      new URLSearchParams(window.location.search).get("mode") === "register"
+    ) {
       setMode("register");
     }
   }, []);
@@ -78,7 +79,9 @@ export default function CustomerAuthPage() {
   const handleLogout = async () => {
     try {
       await signOut();
-      toast.success("Đã đăng xuất. Bạn có thể đăng nhập hoặc tạo tài khoản mới.");
+      toast.success(
+        "Đã đăng xuất. Bạn có thể đăng nhập hoặc tạo tài khoản mới.",
+      );
     } catch (err) {
       reportError(err, "Không đăng xuất được. Vui lòng thử lại.");
     }
@@ -90,28 +93,33 @@ export default function CustomerAuthPage() {
     const result = validateWithToast(
       loginSchema,
       { email: loginEmail, password: loginPassword },
-      setErrors
+      setErrors,
     );
     if (!result.success) return;
 
     setSubmitting(true);
     try {
-      const signedIn = await signIn(result.data.email, result.data.password, "customer");
+      const signedIn = await signIn(
+        result.data.email,
+        result.data.password,
+        "customer",
+      );
       toast.success(`Chào mừng quý khách ${signedIn.name}!`);
       router.push(getSafeRedirect());
     } catch (err) {
-      const message = getErrorMessage(err, "Đăng nhập thất bại. Vui lòng thử lại.");
+      const message = getErrorMessage(
+        err,
+        "Đăng nhập thất bại. Vui lòng thử lại.",
+      );
       const code = (err as { code?: string } | null)?.code;
       if (code === "email_not_confirmed") {
-        // Tài khoản đã đăng ký nhưng chưa nhập mã: chuyển thẳng sang bước nhập OTP
         setOtpEmail(result.data.email);
-        setOtpInput("");
         setMode("register");
-        setStep("otp");
+        setStep("check-email");
         toast.error(message);
         try {
           await resendSignupOtp(result.data.email);
-          toast.info("Đã gửi lại mã xác thực tới email của bạn.");
+          toast.info("Đã gửi lại email xác nhận tới hộp thư của bạn.");
         } catch (resendErr) {
           reportError(resendErr, "Không gửi lại được mã xác thực.");
         }
@@ -135,7 +143,7 @@ export default function CustomerAuthPage() {
         password: regPassword,
         confirmPassword: regRepassword,
       },
-      setErrors
+      setErrors,
     );
     if (!result.success) return;
 
@@ -149,10 +157,10 @@ export default function CustomerAuthPage() {
       });
       if (needsVerification) {
         setOtpEmail(result.data.email);
-        setOtpInput("");
-        setStep("otp");
-        toast.success("Đã gửi mã xác thực đến email của bạn!", {
-          description: "Vui lòng kiểm tra hộp thư (cả mục Spam) và nhập mã.",
+        setStep("check-email");
+        toast.success("Đã gửi email xác nhận!", {
+          description:
+            "Vui lòng mở hộp thư (cả mục Spam) và nhấn vào liên kết.",
         });
       } else {
         toast.success("Đăng ký thành công!");
@@ -165,33 +173,14 @@ export default function CustomerAuthPage() {
     }
   };
 
-  // Gửi lại mã OTP
-  const handleResendOtp = async () => {
+  // Gửi lại email xác thực
+  const handleResendEmail = async () => {
     setSubmitting(true);
     try {
       await resendSignupOtp(otpEmail);
-      setOtpInput("");
-      toast.success("Đã gửi lại mã xác thực mới!");
+      toast.success("Đã gửi lại email xác nhận!");
     } catch (err) {
-      reportError(err, "Không gửi lại được mã xác thực.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Xác nhận OTP
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const result = validateWithToast(otpSchema, { token: otpInput }, setErrors);
-    if (!result.success) return;
-
-    setSubmitting(true);
-    try {
-      await verifyEmailOtp(otpEmail, result.data.token);
-      toast.success("Xác thực email thành công! Tài khoản đã được kích hoạt.");
-      router.push(getSafeRedirect());
-    } catch (err) {
-      reportError(err, "Mã xác thực không chính xác.");
+      reportError(err, "Không gửi lại được email xác nhận.");
     } finally {
       setSubmitting(false);
     }
@@ -199,7 +188,9 @@ export default function CustomerAuthPage() {
 
   const tabClass = (active: boolean) =>
     `py-2 text-xs font-semibold rounded-lg transition-all ${
-      active ? "bg-amber-500 text-neutral-950 shadow-sm" : "text-slate-400 hover:text-white"
+      active
+        ? "bg-amber-500 text-neutral-950 shadow-sm"
+        : "text-slate-400 hover:text-white"
     }`;
 
   return (
@@ -218,7 +209,9 @@ export default function CustomerAuthPage() {
             >
               <Scissors className="h-6 w-6 -rotate-45" />
             </Link>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Cổng Tài Khoản Khách Hàng</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              Cổng Tài Khoản Khách Hàng
+            </h1>
             <p className="text-xs text-slate-400">
               Đăng nhập hoặc đăng ký để đặt lịch hẹn cắt tóc chu đáo nhất
             </p>
@@ -236,15 +229,23 @@ export default function CustomerAuthPage() {
               </div>
 
               <div className="space-y-1">
-                <h3 className="text-base font-bold text-white">Bạn Đang Đăng Nhập Hệ Thống</h3>
-                <p className="text-xs text-slate-400">Hiện bạn đang duy trì phiên đăng nhập với tài khoản:</p>
+                <h3 className="text-base font-bold text-white">
+                  Bạn Đang Đăng Nhập Hệ Thống
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Hiện bạn đang duy trì phiên đăng nhập với tài khoản:
+                </p>
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-left flex items-center gap-3">
                 <UserAvatar name={user.name} role={user.role} size="md" />
                 <div>
-                  <span className="font-bold text-white block">{user.name}</span>
-                  <span className="text-slate-400 block font-mono">{user.email}</span>
+                  <span className="font-bold text-white block">
+                    {user.name}
+                  </span>
+                  <span className="text-slate-400 block font-mono">
+                    {user.email}
+                  </span>
                   <Badge variant="gold" className="text-[9px] mt-1 py-0">
                     {ROLE_NAMES[user.role]}
                   </Badge>
@@ -252,12 +253,17 @@ export default function CustomerAuthPage() {
               </div>
 
               <p className="text-xs text-gold/90 leading-relaxed">
-                Để đăng nhập bằng tài khoản khác hoặc tạo tài khoản mới, bạn cần đăng xuất tài khoản hiện tại.
+                Để đăng nhập bằng tài khoản khác hoặc tạo tài khoản mới, bạn cần
+                đăng xuất tài khoản hiện tại.
               </p>
 
               <div className="space-y-2 pt-2">
                 {user.role === "customer" && (
-                  <Button variant="gold" asChild className="w-full text-xs font-semibold">
+                  <Button
+                    variant="gold"
+                    asChild
+                    className="w-full text-xs font-semibold"
+                  >
                     <Link href="/customer/booking">Đặt Lịch Ngay &rarr;</Link>
                   </Button>
                 )}
@@ -270,7 +276,11 @@ export default function CustomerAuthPage() {
                   Đăng Xuất Tài Khoản Này
                 </Button>
 
-                <Button variant="outline" asChild className="w-full text-xs border-slate-700">
+                <Button
+                  variant="outline"
+                  asChild
+                  className="w-full text-xs border-slate-700"
+                >
                   <Link href="/">
                     <ArrowLeft className="h-3.5 w-3.5 mr-1" />
                     Quay về Trang Chủ
@@ -281,7 +291,11 @@ export default function CustomerAuthPage() {
           ) : (
             <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-6 shadow-xl backdrop-blur-md">
               <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 mb-6">
-                <button type="button" onClick={() => switchMode("login")} className={tabClass(mode === "login")}>
+                <button
+                  type="button"
+                  onClick={() => switchMode("login")}
+                  className={tabClass(mode === "login")}
+                >
                   Đăng Nhập
                 </button>
                 <button
@@ -341,7 +355,11 @@ export default function CustomerAuthPage() {
 
               {/* TAB 2: ĐĂNG KÝ */}
               {mode === "register" && step === "form" && (
-                <form onSubmit={handleRegister} className="space-y-3" noValidate>
+                <form
+                  onSubmit={handleRegister}
+                  className="space-y-3"
+                  noValidate
+                >
                   <div className="space-y-1">
                     <Label className="text-xs text-slate-300 flex items-center gap-1.5">
                       <UserIcon className="h-3.5 w-3.5 text-gold" />
@@ -429,79 +447,61 @@ export default function CustomerAuthPage() {
                     disabled={submitting}
                     className="w-full h-10 text-xs font-semibold mt-2"
                   >
-                    {submitting ? "Đang gửi mã..." : "Tiếp Tục Nhận Mã Xác Thực Email"}
+                    {submitting
+                      ? "Đang gửi email xác thực..."
+                      : "Tiếp Tục Nhận Mã Xác Thực Email"}
                     {!submitting && <ArrowRight className="h-4 w-4 ml-1" />}
                   </Button>
                 </form>
               )}
 
-              {/* BƯỚC XÁC THỰC EMAIL OTP */}
-              {mode === "register" && step === "otp" && (
-                <form onSubmit={handleVerifyOtp} className="space-y-4" noValidate>
-                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-1.5">
-                    <div className="flex items-center gap-2 font-semibold text-gold">
-                      <Mail className="h-4 w-4 shrink-0" />
-                      <span className="break-all">Mã xác thực đã gửi tới: {otpEmail}</span>
-                    </div>
-                    <p className="text-[11px] text-slate-300">
-                      Mở email và nhập mã gồm 6 chữ số để kích hoạt tài khoản.
+              {/* BƯỚC CHỜ XÁC NHẬN EMAIL */}
+              {mode === "register" && step === "check-email" && (
+                <div className="space-y-5 text-center">
+                  <div className="h-12 w-12 rounded-full bg-amber-500/20 text-gold border border-amber-500/40 flex items-center justify-center mx-auto">
+                    <Mail className="h-6 w-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-white">
+                      Kiểm tra email của bạn
+                    </h3>
+                    <p className="text-xs text-slate-400 break-all">
+                      Chúng tôi đã gửi liên kết xác nhận tới{" "}
+                      <span className="text-gold">{otpEmail}</span>.
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Nhấn vào liên kết trong email để kích hoạt tài khoản. Nhớ
+                      kiểm tra cả mục Spam.
                     </p>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-300 flex items-center gap-1.5">
-                      <KeyRound className="h-3.5 w-3.5 text-gold" />
-                      Mã xác thực (OTP)
-                    </Label>
-                    <Input
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      value={otpInput}
-                      onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ""))}
-                      placeholder="Nhập mã OTP"
-                      maxLength={10}
-                      className={`h-11 text-center font-mono text-base tracking-widest bg-slate-950 border-amber-500/40 focus:border-amber-400 ${errorRing(errors.token)}`}
-                    />
-                    <FieldError message={errors.token} />
-                  </div>
-
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       disabled={submitting}
-                      onClick={handleResendOtp}
+                      onClick={handleResendEmail}
                       className="text-xs border-slate-700 flex-1 hover:border-amber-400"
                     >
                       <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                      Gửi lại mã
+                      Gửi lại email
                     </Button>
-
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="gold"
                       size="sm"
+                      className="text-xs flex-1"
                       onClick={() => {
+                        setLoginEmail(otpEmail);
+                        setMode("login");
                         setStep("form");
                         setErrors({});
                       }}
-                      className="text-xs"
                     >
-                      Sửa thông tin
+                      Đã xác nhận, đăng nhập
                     </Button>
                   </div>
-
-                  <Button
-                    type="submit"
-                    variant="gold"
-                    disabled={submitting}
-                    className="w-full h-10 text-xs font-semibold"
-                  >
-                    <ShieldCheck className="h-4 w-4 mr-1.5" />
-                    {submitting ? "Đang xác thực..." : "Xác Thực & Kích Hoạt Tài Khoản"}
-                  </Button>
-                </form>
+                </div>
               )}
             </div>
           )}

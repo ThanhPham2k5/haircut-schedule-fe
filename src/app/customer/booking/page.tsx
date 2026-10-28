@@ -16,7 +16,13 @@ import {
   fetchBarberBusy,
   createBooking,
 } from "@/lib/data";
-import { formatVND, formatDateVN, getWeekdayVN, shortBookingCode, toDateKey } from "@/lib/format";
+import {
+  formatVND,
+  formatDateVN,
+  getWeekdayVN,
+  shortBookingCode,
+  toDateKey,
+} from "@/lib/format";
 import { computeSlots, slotReasonLabel } from "@/lib/slots";
 import { bookingRequestSchema } from "@/lib/schemas";
 import { validateWithToast, type FieldErrors } from "@/lib/validation";
@@ -56,50 +62,85 @@ function BookingContent() {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // Lựa chọn
-  const [selectedServiceId, setSelectedServiceId] = useState<string>("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [selectedBarberId, setSelectedBarberId] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<string>(toDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState<string>(
+    toDateKey(new Date()),
+  );
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
 
-  const [createdBooking, setCreatedBooking] = useState<CreatedBooking | null>(null);
+  const [createdBooking, setCreatedBooking] = useState<CreatedBooking | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Dữ liệu từ Supabase
-  const loadServices = useCallback(() => fetchServices({ activeOnly: true }), []);
+  const loadServices = useCallback(
+    () => fetchServices({ activeOnly: true }),
+    [],
+  );
   const loadBarbers = useCallback(() => fetchBarbers({ activeOnly: true }), []);
-  const { data: services = [], loading: servicesLoading } = useAsyncData(loadServices, {
-    errorMessage: "Không tải được danh sách dịch vụ.",
-  });
-  const { data: barbers = [], loading: barbersLoading } = useAsyncData(loadBarbers, {
-    errorMessage: "Không tải được danh sách thợ.",
-  });
+  const { data: services = [], loading: servicesLoading } = useAsyncData(
+    loadServices,
+    {
+      errorMessage: "Không tải được danh sách dịch vụ.",
+    },
+  );
+  const { data: barbers = [], loading: barbersLoading } = useAsyncData(
+    loadBarbers,
+    {
+      errorMessage: "Không tải được danh sách thợ.",
+    },
+  );
 
-  const selectedService = services.find((s) => s.id === selectedServiceId) ?? null;
+  const selectedServices = useMemo(
+    () => services.filter((s) => selectedServiceIds.includes(s.id)),
+    [services, selectedServiceIds],
+  );
+  const totalDuration = useMemo(
+    () => selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0),
+    [selectedServices],
+  );
+  const totalPrice = useMemo(
+    () => selectedServices.reduce((sum, s) => sum + s.price, 0),
+    [selectedServices],
+  );
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId) ?? null;
 
-  // Mặc định chọn dịch vụ / thợ đầu tiên khi dữ liệu về
+  const toggleService = (id: string) =>
+    setSelectedServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+
+  // Mặc định chọn dịch vụ đầu tiên / thợ đầu tiên khi dữ liệu về
   useEffect(() => {
-    if (!selectedServiceId && services.length > 0) setSelectedServiceId(services[0].id);
-  }, [services, selectedServiceId]);
+    if (selectedServiceIds.length === 0 && services.length > 0) {
+      setSelectedServiceIds([services[0].id]);
+    }
+  }, [services, selectedServiceIds]);
   useEffect(() => {
-    if (!selectedBarberId && barbers.length > 0) setSelectedBarberId(barbers[0].id);
+    if (!selectedBarberId && barbers.length > 0)
+      setSelectedBarberId(barbers[0].id);
   }, [barbers, selectedBarberId]);
 
   // Lịch làm việc của thợ + các khoảng giờ đã bận trong ngày
   const loadSchedule = useCallback(
     () => fetchBarberSchedule(selectedBarberId),
-    [selectedBarberId]
+    [selectedBarberId],
   );
-  const { data: schedule = [], loading: scheduleLoading } = useAsyncData(loadSchedule, {
-    enabled: Boolean(selectedBarberId),
-    errorMessage: "Không tải được lịch làm việc của thợ.",
-  });
+  const { data: schedule = [], loading: scheduleLoading } = useAsyncData(
+    loadSchedule,
+    {
+      enabled: Boolean(selectedBarberId),
+      errorMessage: "Không tải được lịch làm việc của thợ.",
+    },
+  );
 
   const loadBusy = useCallback(
     () => fetchBarberBusy(selectedBarberId, selectedDate),
-    [selectedBarberId, selectedDate]
+    [selectedBarberId, selectedDate],
   );
   const {
     data: busy = [],
@@ -112,16 +153,23 @@ function BookingContent() {
 
   // Tính toán khung giờ khả dụng cho thợ, ngày và dịch vụ đã chọn
   const timeSlots = useMemo(() => {
-    if (!selectedBarberId || !selectedService) return [];
+    if (!selectedBarberId || selectedServices.length === 0) return [];
     const [y, m, d] = selectedDate.split("-").map(Number);
     const dayOfWeek = new Date(y, m - 1, d).getDay();
     return computeSlots({
       date: selectedDate,
-      durationMinutes: selectedService.durationMinutes,
+      durationMinutes: totalDuration,
       schedule: schedule.find((s) => s.dayOfWeek === dayOfWeek),
       busy,
     });
-  }, [selectedBarberId, selectedService, selectedDate, schedule, busy]);
+  }, [
+    selectedBarberId,
+    selectedServices,
+    totalDuration,
+    selectedDate,
+    schedule,
+    busy,
+  ]);
 
   // Nếu giờ đã chọn không còn khả dụng khi đổi ngày / thợ / dịch vụ thì bỏ chọn
   useEffect(() => {
@@ -137,7 +185,11 @@ function BookingContent() {
       const d = addDays(new Date(), i);
       const dayOfWeek = getWeekdayVN(d);
       const dayName =
-        i === 0 ? `Hôm nay (${dayOfWeek})` : i === 1 ? `Ngày mai (${dayOfWeek})` : dayOfWeek;
+        i === 0
+          ? `Hôm nay (${dayOfWeek})`
+          : i === 1
+            ? `Ngày mai (${dayOfWeek})`
+            : dayOfWeek;
       list.push({
         dateStr: toDateKey(d),
         dayName,
@@ -148,20 +200,20 @@ function BookingContent() {
   }, []);
 
   const handleConfirm = async () => {
-    if (!selectedService || !selectedBarber) {
+    if (selectedServices.length === 0 || !selectedBarber) {
       toast.error("Vui lòng chọn đủ dịch vụ, thợ và khung giờ");
       return;
     }
     const result = validateWithToast(
       bookingRequestSchema,
       {
-        serviceIds: [selectedService.id],
+        serviceIds: selectedServices.map((s) => s.id),
         barberId: selectedBarber.id,
         date: selectedDate,
         time: selectedTime,
         notes,
       },
-      setErrors
+      setErrors,
     );
     if (!result.success) {
       if (result.errors.time || result.errors.date) setStep(3);
@@ -181,7 +233,7 @@ function BookingContent() {
         id: bookingId,
         date: result.data.date,
         time: result.data.time,
-        price: selectedService.price,
+        price: totalPrice,
         barberName: selectedBarber.name,
       });
       setStep(5);
@@ -218,14 +270,15 @@ function BookingContent() {
               <div
                 key={s.num}
                 onClick={() => {
-                  if (s.num < step && step !== 5) setStep(s.num as 1 | 2 | 3 | 4);
+                  if (s.num < step && step !== 5)
+                    setStep(s.num as 1 | 2 | 3 | 4);
                 }}
                 className={`flex items-center gap-2 cursor-pointer transition-colors ${
                   step === s.num
                     ? "text-gold font-bold"
                     : step > s.num
-                    ? "text-slate-300"
-                    : "text-slate-600"
+                      ? "text-slate-300"
+                      : "text-slate-600"
                 }`}
               >
                 <div
@@ -233,8 +286,8 @@ function BookingContent() {
                     step === s.num
                       ? "bg-amber-500 text-neutral-950 shadow-md shadow-amber-500/20"
                       : step > s.num
-                      ? "bg-emerald-600 text-[#fff]"
-                      : "bg-slate-800 text-slate-500"
+                        ? "bg-emerald-600 text-[#fff]"
+                        : "bg-slate-800 text-slate-500"
                   }`}
                 >
                   {step > s.num ? <Check className="h-3.5 w-3.5" /> : s.num}
@@ -256,18 +309,35 @@ function BookingContent() {
         {step === 1 && (
           <div className="space-y-6">
             <div className="text-center space-y-1">
-              <h1 className="text-2xl font-bold text-white">Bước 1: Chọn Dịch Vụ Cắt Tóc</h1>
-              <p className="text-xs text-slate-400">Chọn gói dịch vụ phù hợp với phong cách của bạn</p>
+              <h1 className="text-2xl font-bold text-white">
+                Bước 1: Chọn Dịch Vụ Cắt Tóc
+              </h1>
+              <p className="text-xs text-slate-400">
+                Chọn một hoặc nhiều dịch vụ phù hợp với phong cách của bạn
+              </p>
             </div>
 
-            {servicesLoading && <p className="text-center text-xs text-slate-500">Đang tải dịch vụ...</p>}
+            {servicesLoading && (
+              <p className="text-center text-xs text-slate-500">
+                Đang tải dịch vụ...
+              </p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {services.map((srv) => {
-                const isSelected = selectedService?.id === srv.id;
+                const isSelected = selectedServiceIds.includes(srv.id);
                 return (
                   <div
                     key={srv.id}
-                    onClick={() => setSelectedServiceId(srv.id)}
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    tabIndex={0}
+                    onClick={() => toggleService(srv.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === " " || e.key === "Enter") {
+                        e.preventDefault();
+                        toggleService(srv.id);
+                      }
+                    }}
                     className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
                       isSelected
                         ? "bg-slate-900 border-amber-400 ring-1 ring-amber-400 shadow-lg shadow-amber-500/10"
@@ -277,9 +347,14 @@ function BookingContent() {
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-white text-sm">{srv.name}</h3>
+                          <h3 className="font-bold text-white text-sm">
+                            {srv.name}
+                          </h3>
                           {srv.popular && (
-                            <Badge variant="gold" className="text-[10px] py-0 px-1.5">
+                            <Badge
+                              variant="gold"
+                              className="text-[10px] py-0 px-1.5"
+                            >
                               Ưa chuộng
                             </Badge>
                           )}
@@ -307,11 +382,25 @@ function BookingContent() {
               })}
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+              <p className="text-xs text-slate-400">
+                Đã chọn{" "}
+                <span className="font-semibold text-white">
+                  {selectedServices.length}
+                </span>{" "}
+                dịch vụ •{" "}
+                <span className="font-mono text-white">
+                  {totalDuration} phút
+                </span>{" "}
+                •{" "}
+                <span className="font-mono text-gold">
+                  {formatVND(totalPrice)}
+                </span>
+              </p>
               <Button
                 variant="gold"
                 size="lg"
-                disabled={!selectedService}
+                disabled={selectedServices.length === 0}
                 onClick={() => setStep(2)}
                 className="text-xs font-semibold gap-2"
               >
@@ -326,11 +415,19 @@ function BookingContent() {
         {step === 2 && (
           <div className="space-y-6">
             <div className="text-center space-y-1">
-              <h1 className="text-2xl font-bold text-white">Bước 2: Chọn Thợ Cắt Tóc</h1>
-              <p className="text-xs text-slate-400">Đội ngũ Master Barber tay nghề cao của tiệm</p>
+              <h1 className="text-2xl font-bold text-white">
+                Bước 2: Chọn Thợ Cắt Tóc
+              </h1>
+              <p className="text-xs text-slate-400">
+                Đội ngũ Master Barber tay nghề cao của tiệm
+              </p>
             </div>
 
-            {barbersLoading && <p className="text-center text-xs text-slate-500">Đang tải danh sách thợ...</p>}
+            {barbersLoading && (
+              <p className="text-center text-xs text-slate-500">
+                Đang tải danh sách thợ...
+              </p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {barbers.map((b) => {
                 const isSelected = selectedBarber?.id === b.id;
@@ -389,9 +486,12 @@ function BookingContent() {
         {step === 3 && (
           <div className="space-y-6">
             <div className="text-center space-y-1">
-              <h1 className="text-2xl font-bold text-white">Bước 3: Chọn Ngày &amp; Khung Giờ</h1>
+              <h1 className="text-2xl font-bold text-white">
+                Bước 3: Chọn Ngày &amp; Khung Giờ
+              </h1>
               <p className="text-xs text-slate-400">
-                Lịch trống của thợ <strong className="text-gold">{selectedBarber?.name}</strong>
+                Lịch trống của thợ{" "}
+                <strong className="text-gold">{selectedBarber?.name}</strong>
               </p>
             </div>
 
@@ -399,7 +499,9 @@ function BookingContent() {
               {/* Chọn Ngày Format dd/MM/yyyy */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs text-slate-300">Chọn ngày hẹn:</Label>
+                  <Label className="text-xs text-slate-300">
+                    Chọn ngày hẹn:
+                  </Label>
                   <span className="text-xs text-gold font-mono font-bold">
                     Ngày đã chọn: {formatDateVN(selectedDate)}
                   </span>
@@ -422,11 +524,41 @@ function BookingContent() {
                             : "bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700"
                         }`}
                       >
-                        <span className="block text-xs font-semibold">{item.dayName}</span>
-                        <span className="block text-[11px] font-mono mt-0.5">{item.dayFormattedVN}</span>
+                        <span className="block text-xs font-semibold">
+                          {item.dayName}
+                        </span>
+                        <span className="block text-[11px] font-mono mt-0.5">
+                          {item.dayFormattedVN}
+                        </span>
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Chọn ngày khác (xa hơn 5 ngày tới, tối đa 90 ngày) */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+                  <Label
+                    htmlFor="custom-date"
+                    className="text-xs text-slate-300 shrink-0"
+                  >
+                    Hoặc chọn ngày khác:
+                  </Label>
+                  <Input
+                    id="custom-date"
+                    type="date"
+                    min={toDateKey(new Date())}
+                    max={toDateKey(addDays(new Date(), 90))}
+                    value={selectedDate}
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setSelectedDate(e.target.value);
+                      setSelectedTime("");
+                    }}
+                    className="h-9 text-xs font-mono bg-slate-950 border-slate-800 sm:max-w-[200px]"
+                  />
+                  <span className="text-[11px] text-slate-500">
+                    Đặt trước tối đa 90 ngày
+                  </span>
                 </div>
               </div>
 
@@ -450,7 +582,9 @@ function BookingContent() {
 
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
                   {(scheduleLoading || busyLoading) && (
-                    <p className="col-span-full text-xs text-slate-500 py-2">Đang tải khung giờ trống...</p>
+                    <p className="col-span-full text-xs text-slate-500 py-2">
+                      Đang tải khung giờ trống...
+                    </p>
                   )}
                   {timeSlots.map((slot) => {
                     const isSelected = selectedTime === slot.time;
@@ -466,13 +600,19 @@ function BookingContent() {
                           isSelected
                             ? "bg-amber-500 text-neutral-950 font-bold border-amber-400 shadow-md ring-2 ring-amber-400"
                             : isAvailable
-                            ? "bg-slate-950 border-emerald-500/40 text-ok hover:bg-emerald-500/15 cursor-pointer font-medium"
-                            : "bg-slate-950/60 border-slate-800/60 text-slate-600 opacity-60 cursor-not-allowed"
+                              ? "bg-slate-950 border-emerald-500/40 text-ok hover:bg-emerald-500/15 cursor-pointer font-medium"
+                              : "bg-slate-950/60 border-slate-800/60 text-slate-600 opacity-60 cursor-not-allowed"
                         }`}
                       >
-                        <span className="block text-xs font-mono">{slot.time}</span>
+                        <span className="block text-xs font-mono">
+                          {slot.time}
+                        </span>
                         <span className="block text-[9px] mt-0.5">
-                          {isSelected ? "Đã chọn" : isAvailable ? "Còn chỗ" : slotReasonLabel(slot.reason)}
+                          {isSelected
+                            ? "Đã chọn"
+                            : isAvailable
+                              ? "Còn chỗ"
+                              : slotReasonLabel(slot.reason)}
                         </span>
                       </button>
                     );
@@ -510,8 +650,12 @@ function BookingContent() {
         {step === 4 && (
           <div className="space-y-6">
             <div className="text-center space-y-1">
-              <h1 className="text-2xl font-bold text-white">Bước 4: Thông Tin &amp; Xác Nhận</h1>
-              <p className="text-xs text-slate-400">Kiểm tra lại thông tin trước khi hoàn tất đặt lịch</p>
+              <h1 className="text-2xl font-bold text-white">
+                Bước 4: Thông Tin &amp; Xác Nhận
+              </h1>
+              <p className="text-xs text-slate-400">
+                Kiểm tra lại thông tin trước khi hoàn tất đặt lịch
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -524,15 +668,21 @@ function BookingContent() {
                 <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs space-y-1.5">
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-400">Họ và tên:</span>
-                    <span className="font-semibold text-white">{user?.name}</span>
+                    <span className="font-semibold text-white">
+                      {user?.name}
+                    </span>
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-400">Số điện thoại:</span>
-                    <span className="font-semibold text-white font-mono">{user?.phone || "Chưa cập nhật"}</span>
+                    <span className="font-semibold text-white font-mono">
+                      {user?.phone || "Chưa cập nhật"}
+                    </span>
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-400">Email:</span>
-                    <span className="font-mono text-slate-300 break-all">{user?.email}</span>
+                    <span className="font-mono text-slate-300 break-all">
+                      {user?.email}
+                    </span>
                   </div>
                   <p className="pt-1 text-[11px] text-slate-500">
                     Thông tin lấy từ tài khoản của bạn.{" "}
@@ -543,7 +693,9 @@ function BookingContent() {
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-300">Ghi chú về kiểu tóc / Yêu cầu riêng</Label>
+                  <Label className="text-xs text-slate-300">
+                    Ghi chú về kiểu tóc / Yêu cầu riêng
+                  </Label>
                   <Input
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -557,37 +709,56 @@ function BookingContent() {
               {/* Tóm tắt phiếu hẹn */}
               <div className="bg-slate-950 p-5 rounded-2xl border border-amber-500/30 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="text-xs font-bold uppercase text-gold">Phiếu Đặt Lịch Hẹn</span>
+                  <span className="text-xs font-bold uppercase text-gold">
+                    Phiếu Đặt Lịch Hẹn
+                  </span>
                   <Badge variant="pending">Chờ xác nhận</Badge>
                 </div>
 
                 <div className="space-y-2.5 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Gói dịch vụ:</span>
-                    <span className="font-semibold text-white">{selectedService?.name}</span>
+                    <span className="text-slate-400">Dịch vụ:</span>
+                    <span className="font-semibold text-white text-right">
+                      {selectedServices.map((s) => s.name).join(", ")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Thời lượng dự kiến:</span>
+                    <span className="font-semibold text-white font-mono">
+                      {totalDuration} phút
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Thợ phụ trách:</span>
-                    <span className="font-semibold text-white">{selectedBarber?.name}</span>
+                    <span className="font-semibold text-white">
+                      {selectedBarber?.name}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Ngày hẹn:</span>
-                    <span className="font-semibold text-white font-mono">{formatDateVN(selectedDate)}</span>
+                    <span className="font-semibold text-white font-mono">
+                      {formatDateVN(selectedDate)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Khung giờ:</span>
-                    <span className="font-bold text-gold font-mono text-sm">{selectedTime}</span>
+                    <span className="font-bold text-gold font-mono text-sm">
+                      {selectedTime}
+                    </span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-slate-800 text-sm">
-                    <span className="text-slate-300 font-medium">Tổng tiền thanh toán tại tiệm:</span>
+                    <span className="text-slate-300 font-medium">
+                      Tổng tiền thanh toán tại tiệm:
+                    </span>
                     <span className="font-extrabold text-gold font-mono">
-                      {formatVND(selectedService?.price || 0)}
+                      {formatVND(totalPrice)}
                     </span>
                   </div>
                 </div>
 
                 <p className="text-[11px] text-slate-500 italic">
-                  * Không cần thanh toán trước. Quý khách thanh toán tại salon sau khi hoàn tất dịch vụ.
+                  * Không cần thanh toán trước. Quý khách thanh toán tại salon
+                  sau khi hoàn tất dịch vụ.
                 </p>
 
                 <Button
@@ -625,26 +796,34 @@ function BookingContent() {
             </div>
 
             <div className="space-y-1">
-              <h2 className="text-2xl font-bold text-white">Đặt Lịch Hẹn Thành Công!</h2>
+              <h2 className="text-2xl font-bold text-white">
+                Đặt Lịch Hẹn Thành Công!
+              </h2>
               <p className="text-xs text-slate-400">
-                Cảm ơn quý khách <strong>{user?.name}</strong> đã tin tưởng Vanguard &amp; Blade
+                Cảm ơn quý khách <strong>{user?.name}</strong> đã tin tưởng
+                Vanguard &amp; Blade
               </p>
             </div>
 
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-left text-xs space-y-2">
               <div className="flex justify-between">
                 <span className="text-slate-400">Mã lịch hẹn:</span>
-                <span className="font-mono font-bold text-gold">{shortBookingCode(createdBooking.id)}</span>
+                <span className="font-mono font-bold text-gold">
+                  {shortBookingCode(createdBooking.id)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Thời gian:</span>
                 <span className="font-semibold text-white font-mono">
-                  {createdBooking.time} • Ngày {formatDateVN(createdBooking.date)}
+                  {createdBooking.time} • Ngày{" "}
+                  {formatDateVN(createdBooking.date)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Thợ phục vụ:</span>
-                <span className="font-semibold text-white">{createdBooking.barberName}</span>
+                <span className="font-semibold text-white">
+                  {createdBooking.barberName}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Chi phí dự kiến:</span>
@@ -655,7 +834,12 @@ function BookingContent() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
-              <Button variant="gold" size="sm" asChild className="w-full sm:w-auto text-xs">
+              <Button
+                variant="gold"
+                size="sm"
+                asChild
+                className="w-full sm:w-auto text-xs"
+              >
                 <Link href="/customer/appointments">
                   Xem Danh Sách Lịch Hẹn Của Tôi
                   <ArrowRight className="h-4 w-4 ml-1" />

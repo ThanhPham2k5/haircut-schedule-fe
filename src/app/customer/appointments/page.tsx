@@ -4,7 +4,14 @@ import React, { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { isToday, isFuture, isPast, parseISO } from "date-fns";
 import { toast } from "sonner";
-import { Calendar, Clock, XCircle, Plus, Filter, RotateCcw } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  XCircle,
+  Plus,
+  Filter,
+  RotateCcw,
+} from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -24,6 +31,7 @@ import { getStatusLabel, getStatusBadgeVariant } from "@/lib/statusHelper";
 import { reportError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/providers/auth-provider";
+import { useConfirm } from "@/components/useConfirm";
 
 export default function CustomerAppointmentsPage() {
   return (
@@ -42,7 +50,9 @@ function AppointmentsContent() {
     data: allBookings = [],
     loading,
     reload,
-  } = useAsyncData(loadBookings, { errorMessage: "Không tải được lịch hẹn của bạn." });
+  } = useAsyncData(loadBookings, {
+    errorMessage: "Không tải được lịch hẹn của bạn.",
+  });
   const { data: barbers = [] } = useAsyncData(loadBarbers, {
     errorMessage: "Không tải được danh sách thợ.",
   });
@@ -52,8 +62,12 @@ function AppointmentsContent() {
   const [barberFilter, setBarberFilter] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<string>("all");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const { ask, confirmDialog } = useConfirm();
 
-  const barberById = useMemo(() => new Map(barbers.map((b) => [b.id, b])), [barbers]);
+  const barberById = useMemo(
+    () => new Map(barbers.map((b) => [b.id, b])),
+    [barbers],
+  );
 
   // RLS đã chỉ trả về lịch của chính khách này; ở đây chỉ áp dụng bộ lọc hiển thị
   const filteredBookings = useMemo(() => {
@@ -64,19 +78,41 @@ function AppointmentsContent() {
       if (timeFilter !== "all") {
         const bookingDate = parseISO(b.date);
         if (timeFilter === "today" && !isToday(bookingDate)) return false;
-        if (timeFilter === "upcoming" && !isFuture(bookingDate) && !isToday(bookingDate)) return false;
-        if (timeFilter === "past" && (!isPast(bookingDate) || isToday(bookingDate))) return false;
+        if (
+          timeFilter === "upcoming" &&
+          !isFuture(bookingDate) &&
+          !isToday(bookingDate)
+        )
+          return false;
+        if (
+          timeFilter === "past" &&
+          (!isPast(bookingDate) || isToday(bookingDate))
+        )
+          return false;
       }
       return true;
     });
   }, [allBookings, statusFilter, barberFilter, timeFilter]);
 
-  const handleCancelBooking = async (bookingId: string) => {
-    if (!confirm("Bạn có chắc chắn muốn hủy lịch hẹn này không?")) return;
+  const handleCancelBooking = (bookingId: string) => {
+    ask({
+      title: "Hủy lịch hẹn này?",
+      description:
+        "Khung giờ sẽ được mở lại cho khách khác đặt. Bạn có thể đặt lịch mới sau.",
+      confirmLabel: "Hủy lịch",
+      cancelLabel: "Giữ lịch",
+      destructive: true,
+      onConfirm: () => performCancelBooking(bookingId),
+    });
+  };
+
+  const performCancelBooking = async (bookingId: string) => {
     setCancellingId(bookingId);
     try {
       await setBookingStatus(bookingId, "cancelled");
-      toast.success("Đã hủy lịch hẹn thành công. Khung giờ này đã được mở lại.");
+      toast.success(
+        "Đã hủy lịch hẹn thành công. Khung giờ này đã được mở lại.",
+      );
       await reload();
     } catch (err) {
       reportError(err, "Không hủy được lịch hẹn. Vui lòng thử lại.");
@@ -99,7 +135,9 @@ function AppointmentsContent() {
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div>
-            <h1 className="text-2xl font-bold text-white">Lịch Hẹn Cắt Tóc Của Bạn</h1>
+            <h1 className="text-2xl font-bold text-white">
+              Lịch Hẹn Cắt Tóc Của Bạn
+            </h1>
             <p className="text-xs text-slate-400">
               Danh sách lịch hẹn được đồng bộ tự động từ tài khoản của quý khách
             </p>
@@ -119,14 +157,17 @@ function AppointmentsContent() {
               <UserAvatar name={user.name} role={user.role} size="md" />
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-white">{user.name}</span>
+                  <span className="text-sm font-bold text-white">
+                    {user.name}
+                  </span>
                   <Badge variant="gold" className="text-[10px] py-0">
                     Tài khoản đã đăng nhập
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {user.phone ? `Số điện thoại: ${user.phone} • ` : ""}
-                  Email: <span className="font-mono text-slate-300">{user.email}</span>
+                  Email:{" "}
+                  <span className="font-mono text-slate-300">{user.email}</span>
                 </p>
               </div>
             </div>
@@ -145,7 +186,9 @@ function AppointmentsContent() {
               Bộ Lọc Lịch Hẹn
             </span>
 
-            {(statusFilter !== "all" || barberFilter !== "all" || timeFilter !== "all") && (
+            {(statusFilter !== "all" ||
+              barberFilter !== "all" ||
+              timeFilter !== "all") && (
               <button
                 type="button"
                 onClick={handleResetFilters}
@@ -159,7 +202,9 @@ function AppointmentsContent() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-400 font-medium">Thời gian:</label>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Thời gian:
+              </label>
               <Select value={timeFilter} onValueChange={setTimeFilter}>
                 <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800">
                   <SelectValue placeholder="Tất cả thời gian" />
@@ -174,7 +219,9 @@ function AppointmentsContent() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-400 font-medium">Thợ cắt tóc:</label>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Thợ cắt tóc:
+              </label>
               <Select value={barberFilter} onValueChange={setBarberFilter}>
                 <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800">
                   <SelectValue placeholder="Tất cả thợ" />
@@ -192,7 +239,9 @@ function AppointmentsContent() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-400 font-medium">Trạng thái:</label>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Trạng thái:
+              </label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800">
                   <SelectValue placeholder="Tất cả trạng thái" />
@@ -212,7 +261,9 @@ function AppointmentsContent() {
 
         <div className="flex items-center justify-between text-xs text-slate-400 px-1">
           <span>
-            Tìm thấy <strong className="text-white">{filteredBookings.length}</strong> lịch hẹn phù hợp
+            Tìm thấy{" "}
+            <strong className="text-white">{filteredBookings.length}</strong>{" "}
+            lịch hẹn phù hợp
           </span>
         </div>
 
@@ -223,9 +274,12 @@ function AppointmentsContent() {
         ) : filteredBookings.length === 0 ? (
           <div className="p-10 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800 text-center space-y-3">
             <Calendar className="h-10 w-10 text-slate-600 mx-auto" />
-            <p className="text-sm font-semibold text-slate-300">Không tìm thấy lịch hẹn nào phù hợp</p>
+            <p className="text-sm font-semibold text-slate-300">
+              Không tìm thấy lịch hẹn nào phù hợp
+            </p>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Tài khoản của bạn hiện chưa có lịch hẹn nào hoặc các bộ lọc đã ẩn đi kết quả.
+              Tài khoản của bạn hiện chưa có lịch hẹn nào hoặc các bộ lọc đã ẩn
+              đi kết quả.
             </p>
             <Button variant="gold" size="sm" asChild className="text-xs">
               <Link href="/customer/booking">Đặt Lịch Cắt Ngay</Link>
@@ -235,7 +289,8 @@ function AppointmentsContent() {
           <div className="space-y-3">
             {filteredBookings.map((b) => {
               const barber = barberById.get(b.barberId);
-              const canCancel = b.status === "pending" || b.status === "confirmed";
+              const canCancel =
+                b.status === "pending" || b.status === "confirmed";
 
               return (
                 <div
@@ -244,8 +299,13 @@ function AppointmentsContent() {
                 >
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-white text-sm">{b.serviceName}</span>
-                      <Badge variant={getStatusBadgeVariant(b.status)} className="text-[10px]">
+                      <span className="font-bold text-white text-sm">
+                        {b.serviceName}
+                      </span>
+                      <Badge
+                        variant={getStatusBadgeVariant(b.status)}
+                        className="text-[10px]"
+                      >
                         {getStatusLabel(b.status)}
                       </Badge>
                     </div>
@@ -257,20 +317,33 @@ function AppointmentsContent() {
                       </span>
 
                       <span className="flex items-center gap-1.5">
-                        <UserAvatar name={barber?.name} role="barber" size="sm" />
+                        <UserAvatar
+                          name={barber?.name}
+                          role="barber"
+                          size="sm"
+                        />
                         <span>
-                          Thợ: <strong className="text-slate-300 font-medium">{barber?.name ?? "—"}</strong>
+                          Thợ:{" "}
+                          <strong className="text-slate-300 font-medium">
+                            {barber?.name ?? "—"}
+                          </strong>
                         </span>
                       </span>
 
-                      <span className="font-mono text-ok font-semibold">{formatVND(b.price)}</span>
+                      <span className="font-mono text-ok font-semibold">
+                        {formatVND(b.price)}
+                      </span>
                     </div>
 
                     {b.notes && (
-                      <p className="text-[11px] text-slate-400 italic">Ghi chú: &ldquo;{b.notes}&rdquo;</p>
+                      <p className="text-[11px] text-slate-400 italic">
+                        Ghi chú: &ldquo;{b.notes}&rdquo;
+                      </p>
                     )}
 
-                    <p className="text-[10px] text-slate-500 font-mono">Mã lịch hẹn: {shortBookingCode(b.id)}</p>
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      Mã lịch hẹn: {shortBookingCode(b.id)}
+                    </p>
                   </div>
 
                   <div>
@@ -295,6 +368,7 @@ function AppointmentsContent() {
       </main>
 
       <Footer />
+      {confirmDialog}
     </div>
   );
 }

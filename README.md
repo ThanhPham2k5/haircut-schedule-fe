@@ -21,11 +21,11 @@ Next.js 16 (App Router) · React 19 · Tailwind v4 · Supabase (Auth + Postgres 
 
 ### Tài khoản demo (mật khẩu `123456`)
 
-| Vai trò | Email | Đăng nhập tại |
-|---|---|---|
-| Admin | `admin@vanguard.vn` | `/auth/admin` |
-| Thợ | `long.le@vanguard.vn`, `minh.tran@vanguard.vn`, `khoa.pham@vanguard.vn` | `/auth/barber` |
-| Khách | `khach@vanguard.vn` | `/auth/customer` |
+| Vai trò | Email                                                                   | Đăng nhập tại    |
+| ------- | ----------------------------------------------------------------------- | ---------------- |
+| Admin   | `admin@vanguard.vn`                                                     | `/auth/admin`    |
+| Thợ     | `long.le@vanguard.vn`, `minh.tran@vanguard.vn`, `khoa.pham@vanguard.vn` | `/auth/barber`   |
+| Khách   | `khach@vanguard.vn`                                                     | `/auth/customer` |
 
 ## Xác thực email (OTP)
 
@@ -38,16 +38,16 @@ Khách tự đăng ký tại `/auth/customer` và nhập mã OTP gửi qua email
 
 ## Các trang
 
-| Đường dẫn | Ai dùng | Mô tả |
-|---|---|---|
-| `/` | Mọi người | Trang chủ, bảng giá, đội thợ (chỉ xem) |
-| `/auth/customer` | Khách | Đăng nhập / đăng ký / OTP |
-| `/auth/barber`, `/auth/admin` | Thợ, Admin | Đăng nhập theo vai trò (tài khoản do admin cấp) |
-| `/customer/booking` | Khách (đã đăng nhập) | Đặt lịch: chọn dịch vụ → thợ → ngày/giờ → xác nhận |
-| `/customer/appointments` | Khách | Xem và hủy lịch của chính mình |
-| `/barber/schedule` | Thợ | Ca làm trong ngày: nhận ca, bắt đầu, hoàn thành |
-| `/admin/dashboard` | Admin | Doanh thu, lịch hẹn, thợ, dịch vụ, khách hàng |
-| `/profile` | Mọi vai trò | Sửa hồ sơ, đổi mật khẩu |
+| Đường dẫn                     | Ai dùng              | Mô tả                                              |
+| ----------------------------- | -------------------- | -------------------------------------------------- |
+| `/`                           | Mọi người            | Trang chủ, bảng giá, đội thợ (chỉ xem)             |
+| `/auth/customer`              | Khách                | Đăng nhập / đăng ký / OTP                          |
+| `/auth/barber`, `/auth/admin` | Thợ, Admin           | Đăng nhập theo vai trò (tài khoản do admin cấp)    |
+| `/customer/booking`           | Khách (đã đăng nhập) | Đặt lịch: chọn dịch vụ → thợ → ngày/giờ → xác nhận |
+| `/customer/appointments`      | Khách                | Xem và hủy lịch của chính mình                     |
+| `/barber/schedule`            | Thợ                  | Ca làm trong ngày: nhận ca, bắt đầu, hoàn thành    |
+| `/admin/dashboard`            | Admin                | Doanh thu, lịch hẹn, thợ, dịch vụ, khách hàng      |
+| `/profile`                    | Mọi vai trò          | Sửa hồ sơ, đổi mật khẩu                            |
 
 ## Thay đổi so với bản gốc
 
@@ -59,13 +59,13 @@ Khách tự đăng ký tại `/auth/customer` và nhập mã OTP gửi qua email
 
 ## Cơ sở dữ liệu (theo ERD)
 
-| ERD | Bảng thực tế | Ghi chú |
-|---|---|---|
-| `user` | `profiles` (+ `auth.users`) | Mật khẩu băm do Supabase Auth giữ, không lưu trong `profiles` |
-| `barber_schedule` | `barber_schedule` | `day_of_week` 0 = Chủ nhật; mỗi thợ mới tự có 7 dòng mặc định 08:30–20:30 |
-| `bookings` | `bookings` | Ràng buộc exclusion chống trùng giờ cùng thợ |
-| `booking_services` | `booking_services` | Lưu `price_at_booking` |
-| `services` | `services` | Dùng `is_active` để tạm ngưng |
+| ERD                | Bảng thực tế                | Ghi chú                                                                   |
+| ------------------ | --------------------------- | ------------------------------------------------------------------------- |
+| `user`             | `profiles` (+ `auth.users`) | Mật khẩu băm do Supabase Auth giữ, không lưu trong `profiles`             |
+| `barber_schedule`  | `barber_schedule`           | `day_of_week` 0 = Chủ nhật; mỗi thợ mới tự có 7 dòng mặc định 08:30–20:30 |
+| `bookings`         | `bookings`                  | Ràng buộc exclusion chống trùng giờ cùng thợ                              |
+| `booking_services` | `booking_services`          | Lưu `price_at_booking`                                                    |
+| `services`         | `services`                  | Dùng `is_active` để tạm ngưng                                             |
 
 Phần mở rộng so với ERD: `profiles.is_locked`, `email_verified`, `specialty`, `bio`, `rating`, `review_count`; `services.tagline`, `category`, `icon_name`, `popular`; trạng thái `in_progress`; view `public_barbers`.
 

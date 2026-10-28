@@ -22,7 +22,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { FieldError } from "@/components/FieldError";
 import type { Booking, BookingStatus, Service, User } from "@/lib/types";
-import { adminUpdateBooking, fetchBarberBusy, fetchBarberSchedule } from "@/lib/data";
+import {
+  adminUpdateBooking,
+  fetchBarberBusy,
+  fetchBarberSchedule,
+} from "@/lib/data";
 import { formatVND, formatDateVN, shortBookingCode } from "@/lib/format";
 import { ALL_TIME_SLOTS, computeSlots, slotReasonLabel } from "@/lib/slots";
 import { getStatusLabel, getStatusBadgeVariant } from "@/lib/statusHelper";
@@ -54,7 +58,8 @@ export function EditBookingModal({
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<BookingStatus>("pending");
+  const [selectedStatus, setSelectedStatus] =
+    useState<BookingStatus>("pending");
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,7 +77,10 @@ export function EditBookingModal({
 
   // Dịch vụ đã có trong phiếu có thể đã bị ngưng bán → vẫn hiển thị để giữ nguyên
   const serviceOptions = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; price: number; durationMinutes: number }>();
+    const map = new Map<
+      string,
+      { id: string; name: string; price: number; durationMinutes: number }
+    >();
     services.forEach((s) => {
       if (s.isActive) map.set(s.id, s);
     });
@@ -92,17 +100,27 @@ export function EditBookingModal({
 
   const totalDuration = useMemo(() => {
     const picked = serviceOptions.filter((s) => serviceIds.includes(s.id));
-    return picked.reduce((sum, s) => sum + s.durationMinutes, 0) || booking?.durationMinutes || 30;
+    return (
+      picked.reduce((sum, s) => sum + s.durationMinutes, 0) ||
+      booking?.durationMinutes ||
+      30
+    );
   }, [serviceOptions, serviceIds, booking]);
 
   const totalPrice = useMemo(
-    () => serviceOptions.filter((s) => serviceIds.includes(s.id)).reduce((sum, s) => sum + s.price, 0),
-    [serviceOptions, serviceIds]
+    () =>
+      serviceOptions
+        .filter((s) => serviceIds.includes(s.id))
+        .reduce((sum, s) => sum + s.price, 0),
+    [serviceOptions, serviceIds],
   );
 
   const ready = isOpen && !!booking && !!selectedBarberId && !!selectedDate;
 
-  const loadSchedule = useCallback(() => fetchBarberSchedule(selectedBarberId), [selectedBarberId]);
+  const loadSchedule = useCallback(
+    () => fetchBarberSchedule(selectedBarberId),
+    [selectedBarberId],
+  );
   const { data: schedule } = useAsyncData(loadSchedule, {
     enabled: ready,
     errorMessage: "Không tải được lịch làm việc của thợ.",
@@ -110,7 +128,7 @@ export function EditBookingModal({
 
   const loadBusy = useCallback(
     () => fetchBarberBusy(selectedBarberId, selectedDate, booking?.id),
-    [selectedBarberId, selectedDate, booking?.id]
+    [selectedBarberId, selectedDate, booking?.id],
   );
   const { data: busy, loading: busyLoading } = useAsyncData(loadBusy, {
     enabled: ready,
@@ -121,16 +139,28 @@ export function EditBookingModal({
     if (!schedule || !busy || !selectedDate) return [];
     const dow = new Date(`${selectedDate}T00:00:00`).getDay();
     const day = schedule.find((d) => d.dayOfWeek === dow) ?? null;
-    const candidates = Array.from(new Set([...ALL_TIME_SLOTS, ...(booking ? [booking.time] : [])])).sort();
-    // Admin được phép sửa lịch đã qua giờ (DB không chặn) → bỏ qua lý do "past"
-    return computeSlots({
+    const candidates = Array.from(
+      new Set([...ALL_TIME_SLOTS, ...(booking ? [booking.time] : [])]),
+    ).sort();
+    const input = {
       date: selectedDate,
       durationMinutes: totalDuration,
       schedule: day,
       busy,
       candidates,
-      now: new Date(0),
-    });
+    };
+
+    // Giờ hiện tại thật: khung giờ đã qua không được chọn, giống trang khách
+    const real = computeSlots({ ...input });
+    // Lịch cũ đã qua giờ vẫn được giữ đúng khung gốc (để admin đổi trạng thái / sửa ghi chú)
+    const isOriginal = (time: string) =>
+      booking?.date === selectedDate && booking?.time === time;
+    if (!real.some((s) => s.reason === "past" && isOriginal(s.time)))
+      return real;
+    const relaxed = computeSlots({ ...input, now: new Date(0) });
+    return real.map((s, i) =>
+      s.reason === "past" && isOriginal(s.time) ? relaxed[i] : s,
+    );
   }, [schedule, busy, selectedDate, totalDuration, booking]);
 
   const currentSlot = slots.find((s) => s.time === selectedTime);
@@ -138,7 +168,9 @@ export function EditBookingModal({
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId);
 
   const toggleService = (id: string) =>
-    setServiceIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,7 +194,9 @@ export function EditBookingModal({
       return;
     }
     if (!isCurrentTimeAvailable) {
-      toast.error("Khung giờ này không khả dụng! Vui lòng chọn khung giờ còn trống.");
+      toast.error(
+        "Khung giờ này không khả dụng! Vui lòng chọn khung giờ còn trống.",
+      );
       return;
     }
 
@@ -201,13 +235,20 @@ export function EditBookingModal({
                 <Scissors className="h-4 w-4" />
               </div>
               <div>
-                <DialogTitle className="text-base font-bold text-white">Chỉnh Sửa Thông Tin Lịch Hẹn</DialogTitle>
+                <DialogTitle className="text-base font-bold text-white">
+                  Chỉnh Sửa Thông Tin Lịch Hẹn
+                </DialogTitle>
                 <DialogDescription className="text-xs text-slate-400">
-                  Mã phiếu: <span className="font-mono text-slate-300">{shortBookingCode(booking.id)}</span>
+                  Mã phiếu:{" "}
+                  <span className="font-mono text-slate-300">
+                    {shortBookingCode(booking.id)}
+                  </span>
                 </DialogDescription>
               </div>
             </div>
-            <Badge variant={getStatusBadgeVariant(selectedStatus)}>{getStatusLabel(selectedStatus)}</Badge>
+            <Badge variant={getStatusBadgeVariant(selectedStatus)}>
+              {getStatusLabel(selectedStatus)}
+            </Badge>
           </div>
         </DialogHeader>
 
@@ -216,7 +257,9 @@ export function EditBookingModal({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 text-xs">
             <div>
               <span className="text-slate-500 block">Khách hàng</span>
-              <span className="text-white font-semibold">{booking.customerName}</span>
+              <span className="text-white font-semibold">
+                {booking.customerName}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block">Số điện thoại</span>
@@ -224,14 +267,17 @@ export function EditBookingModal({
             </div>
             <div>
               <span className="text-slate-500 block">Email</span>
-              <span className="text-slate-200 break-all">{booking.customerEmail}</span>
+              <span className="text-slate-200 break-all">
+                {booking.customerEmail}
+              </span>
             </div>
           </div>
 
           {/* Dịch vụ */}
           <div className="space-y-1.5">
             <Label className="text-xs text-slate-300">
-              Gói dịch vụ (chọn một hoặc nhiều) — {totalDuration} phút • {formatVND(totalPrice)}
+              Gói dịch vụ (chọn một hoặc nhiều) — {totalDuration} phút •{" "}
+              {formatVND(totalPrice)}
             </Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {serviceOptions.map((srv) => {
@@ -265,23 +311,39 @@ export function EditBookingModal({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1">
               <Label className="text-xs text-slate-300">Trạng thái</Label>
-              <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as BookingStatus)}>
+              <Select
+                value={selectedStatus}
+                onValueChange={(v) => setSelectedStatus(v as BookingStatus)}
+              >
                 <SelectTrigger className="h-9 text-xs bg-slate-800 border-slate-700">
                   <SelectValue placeholder="Chọn trạng thái" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending" className="text-xs text-gold">Chờ xác nhận</SelectItem>
-                  <SelectItem value="confirmed" className="text-xs text-ok">Đã xác nhận</SelectItem>
-                  <SelectItem value="in_progress" className="text-xs text-live">Đang phục vụ</SelectItem>
-                  <SelectItem value="completed" className="text-xs text-info">Đã hoàn thành</SelectItem>
-                  <SelectItem value="cancelled" className="text-xs text-bad">Đã hủy</SelectItem>
+                  <SelectItem value="pending" className="text-xs text-gold">
+                    Chờ xác nhận
+                  </SelectItem>
+                  <SelectItem value="confirmed" className="text-xs text-ok">
+                    Đã xác nhận
+                  </SelectItem>
+                  <SelectItem value="in_progress" className="text-xs text-live">
+                    Đang phục vụ
+                  </SelectItem>
+                  <SelectItem value="completed" className="text-xs text-info">
+                    Đã hoàn thành
+                  </SelectItem>
+                  <SelectItem value="cancelled" className="text-xs text-bad">
+                    Đã hủy
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-1">
               <Label className="text-xs text-slate-300">Thợ phụ trách</Label>
-              <Select value={selectedBarberId} onValueChange={setSelectedBarberId}>
+              <Select
+                value={selectedBarberId}
+                onValueChange={setSelectedBarberId}
+              >
                 <SelectTrigger className="h-9 text-xs bg-slate-800 border-slate-700">
                   <SelectValue placeholder="Chọn thợ" />
                 </SelectTrigger>
@@ -301,7 +363,9 @@ export function EditBookingModal({
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-slate-300">Ngày hẹn</Label>
-                <span className="text-[11px] text-gold font-mono">({formatDateVN(selectedDate)})</span>
+                <span className="text-[11px] text-gold font-mono">
+                  ({formatDateVN(selectedDate)})
+                </span>
               </div>
               <Input
                 type="date"
@@ -318,7 +382,8 @@ export function EditBookingModal({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label className="text-xs text-slate-300 flex items-center gap-1.5 font-bold">
                 <Clock className="h-3.5 w-3.5 text-gold" />
-                Khung giờ khả dụng ({selectedBarber?.name} • {formatDateVN(selectedDate)})
+                Khung giờ khả dụng ({selectedBarber?.name} •{" "}
+                {formatDateVN(selectedDate)})
               </Label>
               <div className="flex items-center gap-3 text-[11px] text-slate-400">
                 <span className="flex items-center gap-1">
@@ -336,8 +401,9 @@ export function EditBookingModal({
               <div className="flex items-center gap-2 p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-bad text-xs">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span>
-                  Khung giờ <strong>{selectedTime}</strong> không khả dụng ({slotReasonLabel(currentSlot?.reason)}).
-                  Vui lòng chọn khung giờ trống khác.
+                  Khung giờ <strong>{selectedTime}</strong> không khả dụng (
+                  {slotReasonLabel(currentSlot?.reason)}). Vui lòng chọn khung
+                  giờ trống khác.
                 </span>
               </div>
             )}
@@ -345,7 +411,9 @@ export function EditBookingModal({
 
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 p-3 bg-slate-950/80 rounded-xl border border-slate-800 min-h-16">
               {busyLoading && slots.length === 0 && (
-                <span className="col-span-full text-xs text-slate-500">Đang tính khung giờ...</span>
+                <span className="col-span-full text-xs text-slate-500">
+                  Đang tính khung giờ...
+                </span>
               )}
               {slots.map((slot) => {
                 const isSelected = selectedTime === slot.time;
@@ -359,13 +427,17 @@ export function EditBookingModal({
                       isSelected
                         ? "bg-amber-500 text-neutral-950 font-bold shadow-md ring-2 ring-amber-400"
                         : slot.available
-                        ? "bg-slate-900 border border-emerald-500/30 text-ok hover:bg-emerald-500/20 cursor-pointer"
-                        : "bg-slate-950 border border-slate-800 text-slate-600 opacity-60 cursor-not-allowed"
+                          ? "bg-slate-900 border border-emerald-500/30 text-ok hover:bg-emerald-500/20 cursor-pointer"
+                          : "bg-slate-950 border border-slate-800 text-slate-600 opacity-60 cursor-not-allowed"
                     }`}
                   >
                     <span>{slot.time}</span>
                     <span className="block text-[8px] font-sans">
-                      {isSelected ? "Đã chọn" : slot.available ? "Trống" : slotReasonLabel(slot.reason)}
+                      {isSelected
+                        ? "Đã chọn"
+                        : slot.available
+                          ? "Trống"
+                          : slotReasonLabel(slot.reason)}
                     </span>
                   </button>
                 );
@@ -385,7 +457,13 @@ export function EditBookingModal({
           </div>
 
           <DialogFooter className="pt-2 gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onClose} className="border-slate-700 text-xs">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="border-slate-700 text-xs"
+            >
               Hủy bỏ
             </Button>
             <Button

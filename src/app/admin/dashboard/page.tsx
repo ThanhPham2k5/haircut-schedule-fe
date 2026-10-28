@@ -24,6 +24,7 @@ import {
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { EditBookingModal } from "@/components/EditBookingModal";
+import { useConfirm } from "@/components/useConfirm";
 import { AuthGuard } from "@/components/AuthGuard";
 import { UserAvatar } from "@/components/UserAvatar";
 import { FieldError, errorRing } from "@/components/FieldError";
@@ -65,7 +66,11 @@ import {
 import { formatVND, formatDateVN } from "@/lib/format";
 import type { Booking, BookingStatus, Service, User } from "@/lib/types";
 import { getStatusLabel, getStatusBadgeVariant } from "@/lib/statusHelper";
-import { adminCreateUserSchema, adminEditUserSchema, serviceFormSchema } from "@/lib/schemas";
+import {
+  adminCreateUserSchema,
+  adminEditUserSchema,
+  serviceFormSchema,
+} from "@/lib/schemas";
 import { validate, type FieldErrors } from "@/lib/validation";
 import { reportError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/use-async-data";
@@ -112,7 +117,11 @@ function DashboardContent() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Modal thêm/sửa tài khoản (thợ hoặc khách)
-  const [userModal, setUserModal] = useState<{ open: boolean; role: "barber" | "customer"; editing: User | null }>({
+  const [userModal, setUserModal] = useState<{
+    open: boolean;
+    role: "barber" | "customer";
+    editing: User | null;
+  }>({
     open: false,
     role: "barber",
     editing: null,
@@ -136,10 +145,17 @@ function DashboardContent() {
   const [srvPopular, setSrvPopular] = useState(false);
   const [srvErrors, setSrvErrors] = useState<FieldErrors>({});
 
+  // Hộp xác nhận dùng chung cho khóa / tạm ngưng / xóa
+  const { ask, confirmDialog } = useConfirm();
+
   const [saving, setSaving] = useState(false);
 
   /** Chạy một thao tác ghi: báo lỗi bằng toast, tải lại dữ liệu khi thành công. */
-  const act = async (fn: () => Promise<void>, successMessage: string, failMessage: string): Promise<boolean> => {
+  const act = async (
+    fn: () => Promise<void>,
+    successMessage: string,
+    failMessage: string,
+  ): Promise<boolean> => {
     try {
       await fn();
       toast.success(successMessage);
@@ -165,11 +181,15 @@ function DashboardContent() {
 
     const completedBookings = bookings.filter((b) => b.status === "completed");
     const completionRate =
-      bookings.length > 0 ? Math.round((completedBookings.length / bookings.length) * 100) : 0;
+      bookings.length > 0
+        ? Math.round((completedBookings.length / bookings.length) * 100)
+        : 0;
 
     const barberStats = barbers.map((barber) => {
       const bBookings = nonCancelled.filter((b) => b.barberId === barber.id);
-      const bCompleted = bBookings.filter((b) => b.status === "completed").length;
+      const bCompleted = bBookings.filter(
+        (b) => b.status === "completed",
+      ).length;
       const bRev = bBookings.reduce((acc, b) => acc + b.price, 0);
       const percentage = totalRev > 0 ? Math.round((bRev / totalRev) * 100) : 0;
       return {
@@ -205,7 +225,10 @@ function DashboardContent() {
       completionRate,
       barberStats,
       serviceStats,
-      averageOrderValue: nonCancelled.length > 0 ? Math.round(totalRev / nonCancelled.length) : 0,
+      averageOrderValue:
+        nonCancelled.length > 0
+          ? Math.round(totalRev / nonCancelled.length)
+          : 0,
     };
   }, [bookings, barbers, services]);
 
@@ -231,11 +254,18 @@ function DashboardContent() {
   const customerList = useMemo(() => {
     return users.map((cust) => {
       const cBookings = bookings.filter((b) => b.customerId === cust.id);
-      const completed = cBookings.filter((b) => b.status === "completed").length;
+      const completed = cBookings.filter(
+        (b) => b.status === "completed",
+      ).length;
       const totalSpent = cBookings
         .filter((b) => b.status !== "cancelled")
         .reduce((sum, b) => sum + b.price, 0);
-      return { ...cust, bookingCount: cBookings.length, completedCount: completed, totalSpent };
+      return {
+        ...cust,
+        bookingCount: cBookings.length,
+        completedCount: completed,
+        totalSpent,
+      };
     });
   }, [users, bookings]);
 
@@ -244,12 +274,22 @@ function DashboardContent() {
     act(
       () => setBookingStatus(id, newStatus),
       `Đã cập nhật trạng thái: ${getStatusLabel(newStatus)}`,
-      "Không cập nhật được trạng thái."
+      "Không cập nhật được trạng thái.",
     );
 
   const handleDeleteBooking = (id: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa lịch hẹn này khỏi hệ thống?")) return;
-    void act(() => deleteBooking(id), "Đã xóa lịch hẹn", "Không xóa được lịch hẹn.");
+    ask({
+      title: "Xóa lịch hẹn này?",
+      description: "Lịch hẹn sẽ bị xóa khỏi hệ thống và không thể khôi phục.",
+      confirmLabel: "Xóa lịch hẹn",
+      destructive: true,
+      onConfirm: () =>
+        void act(
+          () => deleteBooking(id),
+          "Đã xóa lịch hẹn",
+          "Không xóa được lịch hẹn.",
+        ),
+    });
   };
 
   // === Tài khoản (thợ / khách) ===
@@ -301,7 +341,12 @@ function DashboardContent() {
     const ok = editing
       ? await act(
           async () => {
-            const d = result.data as { fullName: string; phone: string; specialty?: string; bio?: string };
+            const d = result.data as {
+              fullName: string;
+              phone: string;
+              specialty?: string;
+              bio?: string;
+            };
             await updateProfile(editing.id, {
               fullName: d.fullName,
               phone: d.phone,
@@ -309,13 +354,20 @@ function DashboardContent() {
               bio: d.bio,
             });
           },
-          isBarber ? "Đã cập nhật thông tin thợ cắt tóc" : "Đã cập nhật thông tin khách hàng",
-          "Không cập nhật được thông tin tài khoản."
+          isBarber
+            ? "Đã cập nhật thông tin thợ cắt tóc"
+            : "Đã cập nhật thông tin khách hàng",
+          "Không cập nhật được thông tin tài khoản.",
         )
       : await act(
-          () => adminCreateUser(result.data as Parameters<typeof adminCreateUser>[0]),
-          isBarber ? "Đã thêm thợ cắt tóc mới vào hệ thống" : "Đã thêm khách hàng mới",
-          "Không tạo được tài khoản."
+          () =>
+            adminCreateUser(
+              result.data as Parameters<typeof adminCreateUser>[0],
+            ),
+          isBarber
+            ? "Đã thêm thợ cắt tóc mới vào hệ thống"
+            : "Đã thêm khách hàng mới",
+          "Không tạo được tài khoản.",
         );
     setSaving(false);
     if (ok) closeUserModal();
@@ -323,22 +375,58 @@ function DashboardContent() {
 
   const handleToggleLockUser = (u: User, label: string) => {
     const next = !u.isLocked;
-    void act(
-      () => setProfileLocked(u.id, next),
-      next ? `Đã KHÓA tài khoản ${label} ${u.name}.` : `Đã MỞ KHÓA tài khoản ${label} ${u.name}.`,
-      "Không đổi được trạng thái khóa."
-    );
+    ask({
+      title: next
+        ? `Khóa tài khoản ${label} ${u.name}?`
+        : `Mở khóa tài khoản ${label} ${u.name}?`,
+      description: next
+        ? `Tài khoản sẽ không thể đăng nhập cho đến khi được mở khóa. Các lịch hẹn đang có vẫn được giữ nguyên.`
+        : `Tài khoản sẽ đăng nhập và sử dụng hệ thống bình thường trở lại.`,
+      confirmLabel: next ? "Khóa tài khoản" : "Mở khóa",
+      destructive: next,
+      onConfirm: () =>
+        void act(
+          () => setProfileLocked(u.id, next),
+          next
+            ? `Đã KHÓA tài khoản ${label} ${u.name}.`
+            : `Đã MỞ KHÓA tài khoản ${label} ${u.name}.`,
+          "Không đổi được trạng thái khóa.",
+        ),
+    });
   };
   const handleToggleLockBarber = (b: User) => handleToggleLockUser(b, "thợ");
-  const handleToggleLockCustomer = (c: User) => handleToggleLockUser(c, "khách");
+  const handleToggleLockCustomer = (c: User) =>
+    handleToggleLockUser(c, "khách");
 
   const handleDeleteBarber = (b: User) => {
-    if (!confirm(`Bạn có chắc muốn xóa vĩnh viễn thợ ${b.name} khỏi hệ thống?`)) return;
-    void act(() => adminDeleteUser(b.id), "Đã xóa tài khoản thợ", "Không xóa được tài khoản thợ.");
+    ask({
+      title: `Xóa vĩnh viễn thợ ${b.name}?`,
+      description:
+        "Tài khoản thợ sẽ bị xóa khỏi hệ thống và không thể khôi phục.",
+      confirmLabel: "Xóa thợ",
+      destructive: true,
+      onConfirm: () =>
+        void act(
+          () => adminDeleteUser(b.id),
+          "Đã xóa tài khoản thợ",
+          "Không xóa được tài khoản thợ.",
+        ),
+    });
   };
   const handleDeleteCustomer = (c: User) => {
-    if (!confirm(`Xóa tài khoản khách ${c.name}? Toàn bộ lịch hẹn của khách này cũng sẽ bị xóa.`)) return;
-    void act(() => adminDeleteUser(c.id), "Đã xóa khách hàng khỏi danh bạ", "Không xóa được khách hàng.");
+    ask({
+      title: `Xóa tài khoản khách ${c.name}?`,
+      description:
+        "Toàn bộ lịch hẹn của khách này cũng sẽ bị xóa. Hành động này không thể khôi phục.",
+      confirmLabel: "Xóa khách",
+      destructive: true,
+      onConfirm: () =>
+        void act(
+          () => adminDeleteUser(c.id),
+          "Đã xóa khách hàng khỏi danh bạ",
+          "Không xóa được khách hàng.",
+        ),
+    });
   };
 
   // === Dịch vụ ===
@@ -387,41 +475,65 @@ function DashboardContent() {
       ? await act(
           () => updateService(editingService.id, result.data),
           "Đã cập nhật dịch vụ",
-          "Không cập nhật được dịch vụ."
+          "Không cập nhật được dịch vụ.",
         )
-      : await act(() => createService(result.data), "Đã thêm dịch vụ mới vào bảng giá", "Không thêm được dịch vụ.");
+      : await act(
+          () => createService(result.data),
+          "Đã thêm dịch vụ mới vào bảng giá",
+          "Không thêm được dịch vụ.",
+        );
     setSaving(false);
     if (ok) setIsServiceModalOpen(false);
   };
 
   const handleToggleLockService = (srv: Service) => {
     const nextActive = !srv.isActive;
-    void act(
-      () => setServiceActive(srv.id, nextActive),
-      nextActive
-        ? `Đã MỞ LẠI gói dịch vụ "${srv.name}".`
-        : `Đã TẠM NGƯNG gói dịch vụ "${srv.name}". Khách sẽ không thể đặt gói này.`,
-      "Không đổi được trạng thái dịch vụ."
-    );
+    ask({
+      title: nextActive
+        ? `Mở lại gói dịch vụ "${srv.name}"?`
+        : `Tạm ngưng gói dịch vụ "${srv.name}"?`,
+      description: nextActive
+        ? `Khách sẽ có thể đặt gói này trở lại.`
+        : `Khách sẽ không thể đặt gói này cho đến khi được mở lại. Các lịch hẹn đã đặt trước đó vẫn giữ nguyên.`,
+      confirmLabel: nextActive ? "Mở lại" : "Tạm ngưng",
+      destructive: !nextActive,
+      onConfirm: () =>
+        void act(
+          () => setServiceActive(srv.id, nextActive),
+          nextActive
+            ? `Đã MỞ LẠI gói dịch vụ "${srv.name}".`
+            : `Đã TẠM NGƯNG gói dịch vụ "${srv.name}". Khách sẽ không thể đặt gói này.`,
+          "Không đổi được trạng thái dịch vụ.",
+        ),
+    });
   };
 
   const handleDeleteService = (srv: Service) => {
-    if (!confirm(`Bạn có chắc chắn muốn xóa dịch vụ "${srv.name}"?`)) return;
-    void act(
-      () => deleteService(srv.id),
-      "Đã xóa dịch vụ",
-      "Không xóa được dịch vụ (có thể đã có lịch hẹn dùng gói này — hãy dùng Tạm ngưng)."
-    );
+    ask({
+      title: `Xóa dịch vụ "${srv.name}"?`,
+      description:
+        "Dịch vụ sẽ bị xóa khỏi hệ thống. Nếu gói này đã có lịch hẹn, hãy dùng Tạm ngưng thay vì xóa.",
+      confirmLabel: "Xóa dịch vụ",
+      destructive: true,
+      onConfirm: () =>
+        void act(
+          () => deleteService(srv.id),
+          "Đã xóa dịch vụ",
+          "Không xóa được dịch vụ (có thể đã có lịch hẹn dùng gói này — hãy dùng Tạm ngưng).",
+        ),
+    });
   };
 
   const isBarberModal = userModal.role === "barber";
 
   return (
-      <div className="min-h-screen flex flex-col bg-background text-slate-100">
-        <Navbar />
+    <div className="min-h-screen flex flex-col bg-background text-slate-100">
+      <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 space-y-6">
-        {loading && !data && <p className="text-xs text-slate-500">Đang tải dữ liệu quản trị...</p>}
+        {loading && !data && (
+          <p className="text-xs text-slate-500">Đang tải dữ liệu quản trị...</p>
+        )}
         {/* TIÊU ĐỀ TRANG ADMIN */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div>
@@ -435,20 +547,36 @@ function DashboardContent() {
               Trung Tâm Quản Trị Tiệm Tóc Quý Ông
             </h1>
             <p className="text-xs text-slate-400">
-              Quản trị toàn diện doanh thu, bảng giá, ca làm việc của thợ và lịch hẹn khách hàng
+              Quản trị toàn diện doanh thu, bảng giá, ca làm việc của thợ và
+              lịch hẹn khách hàng
             </p>
           </div>
-
         </div>
 
         {/* CÁC TAB QUẢN LÝ RIÊNG BIỆT */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-800 text-xs font-semibold">
           {[
             { id: "analytics", label: "Báo Cáo & Doanh Thu", icon: BarChart3 },
-            { id: "bookings", label: `Lịch Hẹn (${bookings.length})`, icon: Calendar },
-            { id: "barbers", label: `Đội Ngũ Thợ (${barbers.length})`, icon: Scissors },
-            { id: "services", label: `Dịch Vụ & Bảng Giá (${services.length})`, icon: DollarSign },
-            { id: "customers", label: `Khách Hàng (${customerList.length})`, icon: Users },
+            {
+              id: "bookings",
+              label: `Lịch Hẹn (${bookings.length})`,
+              icon: Calendar,
+            },
+            {
+              id: "barbers",
+              label: `Đội Ngũ Thợ (${barbers.length})`,
+              icon: Scissors,
+            },
+            {
+              id: "services",
+              label: `Dịch Vụ & Bảng Giá (${services.length})`,
+              icon: DollarSign,
+            },
+            {
+              id: "customers",
+              label: `Khách Hàng (${customerList.length})`,
+              icon: Users,
+            },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -477,7 +605,9 @@ function DashboardContent() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
-                <span className="text-xs text-slate-400 font-medium block">Doanh thu hôm nay ({formatDateVN(new Date())})</span>
+                <span className="text-xs text-slate-400 font-medium block">
+                  Doanh thu hôm nay ({formatDateVN(new Date())})
+                </span>
                 <span className="text-2xl font-bold text-ok font-mono mt-1 block">
                   {formatVND(analyticsData.todayRev)}
                 </span>
@@ -487,7 +617,9 @@ function DashboardContent() {
               </div>
 
               <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
-                <span className="text-xs text-slate-400 font-medium block">Tổng doanh thu hệ thống</span>
+                <span className="text-xs text-slate-400 font-medium block">
+                  Tổng doanh thu hệ thống
+                </span>
                 <span className="text-2xl font-bold text-gold font-mono mt-1 block">
                   {formatVND(analyticsData.totalRev)}
                 </span>
@@ -497,7 +629,9 @@ function DashboardContent() {
               </div>
 
               <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
-                <span className="text-xs text-slate-400 font-medium block">Giá trị đơn trung bình (AOV)</span>
+                <span className="text-xs text-slate-400 font-medium block">
+                  Giá trị đơn trung bình (AOV)
+                </span>
                 <span className="text-2xl font-bold text-white font-mono mt-1 block">
                   {formatVND(analyticsData.averageOrderValue)}
                 </span>
@@ -507,7 +641,9 @@ function DashboardContent() {
               </div>
 
               <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
-                <span className="text-xs text-slate-400 font-medium block">Tỷ lệ hoàn thành ca</span>
+                <span className="text-xs text-slate-400 font-medium block">
+                  Tỷ lệ hoàn thành ca
+                </span>
                 <span className="text-2xl font-bold text-info font-mono mt-1 block">
                   {analyticsData.completionRate}%
                 </span>
@@ -528,18 +664,31 @@ function DashboardContent() {
 
               <div className="space-y-4">
                 {analyticsData.barberStats.map((item) => (
-                  <div key={item.barber.id} className="space-y-1.5 p-3 rounded-xl bg-slate-950 border border-slate-800/80">
+                  <div
+                    key={item.barber.id}
+                    className="space-y-1.5 p-3 rounded-xl bg-slate-950 border border-slate-800/80"
+                  >
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        <UserAvatar name={item.barber.name} role="barber" size="sm" />
-                        <span className="font-bold text-white">{item.barber.name}</span>
+                        <UserAvatar
+                          name={item.barber.name}
+                          role="barber"
+                          size="sm"
+                        />
+                        <span className="font-bold text-white">
+                          {item.barber.name}
+                        </span>
                         {item.barber.isLocked && (
-                          <Badge variant="destructive" className="text-[9px] py-0">
+                          <Badge
+                            variant="destructive"
+                            className="text-[9px] py-0"
+                          >
                             Đã khóa
                           </Badge>
                         )}
                         <span className="text-slate-400 font-normal">
-                          ({item.totalAppointments} ca • {item.completedAppointments} hoàn thành)
+                          ({item.totalAppointments} ca •{" "}
+                          {item.completedAppointments} hoàn thành)
                         </span>
                       </div>
                       <div className="text-right">
@@ -584,7 +733,12 @@ function DashboardContent() {
                           {item.service.name}
                         </span>
                         {!item.service.isActive && (
-                          <Badge variant="destructive" className="text-[9px] py-0">Tạm ngưng</Badge>
+                          <Badge
+                            variant="destructive"
+                            className="text-[9px] py-0"
+                          >
+                            Tạm ngưng
+                          </Badge>
                         )}
                       </div>
                       <span className="text-[11px] text-slate-400">
@@ -634,9 +788,15 @@ function DashboardContent() {
                     Tất cả ngày
                   </Button>
                   <Button
-                    variant={dateFilter === format(new Date(), "yyyy-MM-dd") ? "gold" : "outline"}
+                    variant={
+                      dateFilter === format(new Date(), "yyyy-MM-dd")
+                        ? "gold"
+                        : "outline"
+                    }
                     size="sm"
-                    onClick={() => setDateFilter(format(new Date(), "yyyy-MM-dd"))}
+                    onClick={() =>
+                      setDateFilter(format(new Date(), "yyyy-MM-dd"))
+                    }
                     className="h-8 text-xs"
                   >
                     Hôm nay ({formatDateVN(new Date())})
@@ -652,9 +812,13 @@ function DashboardContent() {
                       <SelectValue placeholder="Tất cả thợ" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all" className="text-xs">Tất cả thợ</SelectItem>
+                      <SelectItem value="all" className="text-xs">
+                        Tất cả thợ
+                      </SelectItem>
                       {barbers.map((b) => (
-                        <SelectItem key={b.id} value={b.id} className="text-xs">{b.name}</SelectItem>
+                        <SelectItem key={b.id} value={b.id} className="text-xs">
+                          {b.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -667,12 +831,33 @@ function DashboardContent() {
                       <SelectValue placeholder="Tất cả" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all" className="text-xs">Tất cả trạng thái</SelectItem>
-                      <SelectItem value="pending" className="text-xs text-gold">Chờ xác nhận</SelectItem>
-                      <SelectItem value="confirmed" className="text-xs text-ok">Đã xác nhận</SelectItem>
-                      <SelectItem value="in_progress" className="text-xs text-live">Đang phục vụ</SelectItem>
-                      <SelectItem value="completed" className="text-xs text-info">Đã hoàn thành</SelectItem>
-                      <SelectItem value="cancelled" className="text-xs text-bad">Đã hủy</SelectItem>
+                      <SelectItem value="all" className="text-xs">
+                        Tất cả trạng thái
+                      </SelectItem>
+                      <SelectItem value="pending" className="text-xs text-gold">
+                        Chờ xác nhận
+                      </SelectItem>
+                      <SelectItem value="confirmed" className="text-xs text-ok">
+                        Đã xác nhận
+                      </SelectItem>
+                      <SelectItem
+                        value="in_progress"
+                        className="text-xs text-live"
+                      >
+                        Đang phục vụ
+                      </SelectItem>
+                      <SelectItem
+                        value="completed"
+                        className="text-xs text-info"
+                      >
+                        Đã hoàn thành
+                      </SelectItem>
+                      <SelectItem
+                        value="cancelled"
+                        className="text-xs text-bad"
+                      >
+                        Đã hủy
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -706,14 +891,19 @@ function DashboardContent() {
                           <span className="text-xs text-slate-400 font-mono">
                             ({b.customerPhone})
                           </span>
-                          <Badge variant={getStatusBadgeVariant(b.status)} className="text-[10px]">
+                          <Badge
+                            variant={getStatusBadgeVariant(b.status)}
+                            className="text-[10px]"
+                          >
                             {getStatusLabel(b.status)}
                           </Badge>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
                           <span className="font-semibold text-slate-200">
-                            {b.services.length > 0 ? b.services.map((s) => s.name).join(" + ") : b.serviceName}
+                            {b.services.length > 0
+                              ? b.services.map((s) => s.name).join(" + ")
+                              : b.serviceName}
                           </span>
                           <span className="font-mono text-gold font-bold">
                             {formatVND(b.price)}
@@ -722,7 +912,12 @@ function DashboardContent() {
                             <Clock className="h-3.5 w-3.5" />
                             {b.time}–{b.endTime} • Ngày {formatDateVN(b.date)}
                           </span>
-                          <span>Thợ: <strong className="text-slate-300">{barber?.name}</strong></span>
+                          <span>
+                            Thợ:{" "}
+                            <strong className="text-slate-300">
+                              {barber?.name}
+                            </strong>
+                          </span>
                         </div>
 
                         {b.notes && (
@@ -738,7 +933,9 @@ function DashboardContent() {
                           <Button
                             size="sm"
                             variant="emerald"
-                            onClick={() => handleUpdateStatus(b.id, "confirmed")}
+                            onClick={() =>
+                              handleUpdateStatus(b.id, "confirmed")
+                            }
                             className="h-7 px-2 text-xs"
                           >
                             <Check className="h-3 w-3 mr-1" /> Duyệt
@@ -749,7 +946,9 @@ function DashboardContent() {
                           <Button
                             size="sm"
                             variant="gold"
-                            onClick={() => handleUpdateStatus(b.id, "in_progress")}
+                            onClick={() =>
+                              handleUpdateStatus(b.id, "in_progress")
+                            }
                             className="h-7 px-2 text-xs"
                           >
                             <Play className="h-3 w-3 mr-1" /> Phục vụ
@@ -760,7 +959,9 @@ function DashboardContent() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() => handleUpdateStatus(b.id, "completed")}
+                            onClick={() =>
+                              handleUpdateStatus(b.id, "completed")
+                            }
                             className="h-7 px-2 text-xs bg-blue-900/40 text-info"
                           >
                             <CheckCircle className="h-3 w-3 mr-1" /> Xong
@@ -804,7 +1005,8 @@ function DashboardContent() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
-                Quản lý hồ sơ, quyền hạn và trạng thái làm việc của các thợ cắt tóc
+                Quản lý hồ sơ, quyền hạn và trạng thái làm việc của các thợ cắt
+                tóc
               </span>
               <Button
                 variant="gold"
@@ -820,9 +1022,11 @@ function DashboardContent() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {barbers.map((b) => {
                 const bBookings = bookings.filter(
-                  (bk) => bk.barberId === b.id && bk.status !== "cancelled"
+                  (bk) => bk.barberId === b.id && bk.status !== "cancelled",
                 );
-                const bCompleted = bBookings.filter((bk) => bk.status === "completed").length;
+                const bCompleted = bBookings.filter(
+                  (bk) => bk.status === "completed",
+                ).length;
                 const bRev = bBookings.reduce((sum, bk) => sum + bk.price, 0);
 
                 return (
@@ -839,15 +1043,22 @@ function DashboardContent() {
                         <UserAvatar name={b.name} role="barber" size="lg" />
                         <div>
                           <div className="flex items-center gap-1.5">
-                            <h4 className="font-bold text-white text-sm">{b.name}</h4>
+                            <h4 className="font-bold text-white text-sm">
+                              {b.name}
+                            </h4>
                             {b.isLocked && (
-                              <Badge variant="destructive" className="text-[9px] py-0 px-1">
+                              <Badge
+                                variant="destructive"
+                                className="text-[9px] py-0 px-1"
+                              >
                                 Đã khóa
                               </Badge>
                             )}
                           </div>
                           <p className="text-xs text-gold">{b.specialty}</p>
-                          <p className="text-[11px] text-slate-400 font-mono">{b.phone}</p>
+                          <p className="text-[11px] text-slate-400 font-mono">
+                            {b.phone}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -858,11 +1069,17 @@ function DashboardContent() {
 
                     <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
                       <div className="bg-slate-950 p-2 rounded-lg text-center border border-slate-800">
-                        <span className="text-[10px] text-slate-500 block">Đã hoàn thành</span>
-                        <span className="font-bold text-white text-xs">{bCompleted} ca</span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Đã hoàn thành
+                        </span>
+                        <span className="font-bold text-white text-xs">
+                          {bCompleted} ca
+                        </span>
                       </div>
                       <div className="bg-slate-950 p-2 rounded-lg text-center border border-slate-800">
-                        <span className="text-[10px] text-slate-500 block">Doanh thu tạo ra</span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Doanh thu tạo ra
+                        </span>
                         <span className="font-bold text-ok font-mono text-xs">
                           {formatVND(bRev)}
                         </span>
@@ -890,7 +1107,9 @@ function DashboardContent() {
                             ? "bg-emerald-600 text-[#fff]"
                             : "border-slate-700 text-slate-300 hover:text-gold hover:border-amber-500/50"
                         }`}
-                        title={b.isLocked ? "Mở khóa thợ" : "Khóa tài khoản thợ"}
+                        title={
+                          b.isLocked ? "Mở khóa thợ" : "Khóa tài khoản thợ"
+                        }
                       >
                         {b.isLocked ? (
                           <>
@@ -953,12 +1172,19 @@ function DashboardContent() {
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-white text-sm">{srv.name}</span>
+                        <span className="font-bold text-white text-sm">
+                          {srv.name}
+                        </span>
                         {srv.popular && (
-                          <Badge variant="gold" className="text-[10px] py-0">Ưa chuộng</Badge>
+                          <Badge variant="gold" className="text-[10px] py-0">
+                            Ưa chuộng
+                          </Badge>
                         )}
                         {!srv.isActive && (
-                          <Badge variant="destructive" className="text-[9px] py-0">
+                          <Badge
+                            variant="destructive"
+                            className="text-[9px] py-0"
+                          >
                             Tạm ngưng
                           </Badge>
                         )}
@@ -968,8 +1194,12 @@ function DashboardContent() {
                       </span>
                     </div>
 
-                    <p className="text-xs text-gold font-medium">{srv.tagline}</p>
-                    <p className="text-xs text-slate-400 line-clamp-2">{srv.description}</p>
+                    <p className="text-xs text-gold font-medium">
+                      {srv.tagline}
+                    </p>
+                    <p className="text-xs text-slate-400 line-clamp-2">
+                      {srv.description}
+                    </p>
                     <span className="text-[11px] text-slate-500 block pt-0.5">
                       Thời lượng: {srv.durationMinutes} phút
                     </span>
@@ -1058,14 +1288,22 @@ function DashboardContent() {
                     <UserAvatar name={cust.name} role="customer" size="md" />
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-white text-sm">{cust.name}</span>
+                        <span className="font-bold text-white text-sm">
+                          {cust.name}
+                        </span>
                         {cust.isLocked && (
-                          <Badge variant="destructive" className="text-[9px] py-0 px-1">
+                          <Badge
+                            variant="destructive"
+                            className="text-[9px] py-0 px-1"
+                          >
                             Bị khóa
                           </Badge>
                         )}
                         {cust.isEmailVerified ? (
-                          <Badge variant="confirmed" className="text-[10px] py-0">
+                          <Badge
+                            variant="confirmed"
+                            className="text-[10px] py-0"
+                          >
                             Email đã xác thực
                           </Badge>
                         ) : (
@@ -1082,11 +1320,17 @@ function DashboardContent() {
 
                   <div className="flex items-center gap-6 md:text-right">
                     <div>
-                      <span className="text-slate-500 block text-[10px]">Số lần đặt</span>
-                      <span className="font-bold text-white">{cust.bookingCount} lần</span>
+                      <span className="text-slate-500 block text-[10px]">
+                        Số lần đặt
+                      </span>
+                      <span className="font-bold text-white">
+                        {cust.bookingCount} lần
+                      </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block text-[10px]">Tổng chi tiêu</span>
+                      <span className="text-slate-500 block text-[10px]">
+                        Tổng chi tiêu
+                      </span>
                       <span className="font-bold text-ok font-mono">
                         {formatVND(cust.totalSpent)}
                       </span>
@@ -1113,7 +1357,9 @@ function DashboardContent() {
                             ? "bg-emerald-600 text-[#fff]"
                             : "border-slate-700 text-slate-300 hover:text-gold"
                         }`}
-                        title={cust.isLocked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
+                        title={
+                          cust.isLocked ? "Mở khóa tài khoản" : "Khóa tài khoản"
+                        }
                       >
                         {cust.isLocked ? (
                           <>
@@ -1160,18 +1406,25 @@ function DashboardContent() {
       />
 
       {/* MODAL THÊM / SỬA TÀI KHOẢN THỢ HOẶC KHÁCH */}
-      <Dialog open={userModal.open} onOpenChange={(open) => !open && closeUserModal()}>
+      <Dialog
+        open={userModal.open}
+        onOpenChange={(open) => !open && closeUserModal()}
+      >
         <DialogContent className="max-w-md border-slate-700 bg-slate-900 text-slate-100">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
-              {isBarberModal ? <Scissors className="h-4 w-4 text-gold" /> : <Users className="h-4 w-4 text-gold" />}
+              {isBarberModal ? (
+                <Scissors className="h-4 w-4 text-gold" />
+              ) : (
+                <Users className="h-4 w-4 text-gold" />
+              )}
               {userModal.editing
                 ? isBarberModal
                   ? "Chỉnh Sửa Thông Tin Thợ Cắt Tóc"
                   : "Chỉnh Sửa Khách Hàng"
                 : isBarberModal
-                ? "Thêm Thợ Cắt Tóc Mới"
-                : "Thêm Khách Hàng Mới"}
+                  ? "Thêm Thợ Cắt Tóc Mới"
+                  : "Thêm Khách Hàng Mới"}
             </DialogTitle>
           </DialogHeader>
 
@@ -1181,7 +1434,9 @@ function DashboardContent() {
               <Input
                 value={uName}
                 onChange={(e) => setUName(e.target.value)}
-                placeholder={isBarberModal ? "Ví dụ: Lê Hoàng Long" : "Nguyễn Văn An"}
+                placeholder={
+                  isBarberModal ? "Ví dụ: Lê Hoàng Long" : "Nguyễn Văn An"
+                }
                 className={`h-8 text-xs bg-slate-800 border-slate-700 ${errorRing(userErrors.fullName)}`}
               />
               <FieldError message={userErrors.fullName} />
@@ -1189,7 +1444,9 @@ function DashboardContent() {
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs text-slate-300">Số điện thoại *</Label>
+                <Label className="text-xs text-slate-300">
+                  Số điện thoại *
+                </Label>
                 <Input
                   value={uPhone}
                   onChange={(e) => setUPhone(e.target.value)}
@@ -1206,7 +1463,9 @@ function DashboardContent() {
                   value={uEmail}
                   onChange={(e) => setUEmail(e.target.value)}
                   disabled={!!userModal.editing}
-                  placeholder={isBarberModal ? "tho@vanguard.vn" : "an.nguyen@gmail.com"}
+                  placeholder={
+                    isBarberModal ? "tho@vanguard.vn" : "an.nguyen@gmail.com"
+                  }
                   className={`h-8 text-xs bg-slate-800 border-slate-700 disabled:opacity-60 ${errorRing(userErrors.email)}`}
                 />
                 <FieldError message={userErrors.email} />
@@ -1215,7 +1474,9 @@ function DashboardContent() {
 
             {!userModal.editing && (
               <div className="space-y-1">
-                <Label className="text-xs text-slate-300">Mật khẩu khởi tạo *</Label>
+                <Label className="text-xs text-slate-300">
+                  Mật khẩu khởi tạo *
+                </Label>
                 <PasswordInput
                   autoComplete="new-password"
                   value={uPassword}
@@ -1230,7 +1491,9 @@ function DashboardContent() {
             {isBarberModal && (
               <>
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-300">Chuyên môn / Kỹ năng nổi bật</Label>
+                  <Label className="text-xs text-slate-300">
+                    Chuyên môn / Kỹ năng nổi bật
+                  </Label>
                   <Input
                     value={uSpecialty}
                     onChange={(e) => setUSpecialty(e.target.value)}
@@ -1241,7 +1504,9 @@ function DashboardContent() {
                 </div>
 
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-300">Giới thiệu tay nghề</Label>
+                  <Label className="text-xs text-slate-300">
+                    Giới thiệu tay nghề
+                  </Label>
                   <textarea
                     value={uBio}
                     onChange={(e) => setUBio(e.target.value)}
@@ -1264,8 +1529,20 @@ function DashboardContent() {
               >
                 Hủy bỏ
               </Button>
-              <Button type="submit" variant="gold" size="sm" disabled={saving} className="text-xs">
-                {saving ? "Đang lưu..." : userModal.editing ? "Lưu thay đổi" : isBarberModal ? "Thêm thợ" : "Tạo khách hàng"}
+              <Button
+                type="submit"
+                variant="gold"
+                size="sm"
+                disabled={saving}
+                className="text-xs"
+              >
+                {saving
+                  ? "Đang lưu..."
+                  : userModal.editing
+                    ? "Lưu thay đổi"
+                    : isBarberModal
+                      ? "Thêm thợ"
+                      : "Tạo khách hàng"}
               </Button>
             </DialogFooter>
           </form>
@@ -1295,7 +1572,9 @@ function DashboardContent() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs text-slate-300">Mô tả ngắn (Tagline)</Label>
+              <Label className="text-xs text-slate-300">
+                Mô tả ngắn (Tagline)
+              </Label>
               <Input
                 value={srvTagline}
                 onChange={(e) => setSrvTagline(e.target.value)}
@@ -1307,7 +1586,9 @@ function DashboardContent() {
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs text-slate-300">Giá niêm yết (VNĐ) *</Label>
+                <Label className="text-xs text-slate-300">
+                  Giá niêm yết (VNĐ) *
+                </Label>
                 <Input
                   type="number"
                   value={srvPrice}
@@ -1319,7 +1600,9 @@ function DashboardContent() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs text-slate-300">Thời lượng (phút) *</Label>
+                <Label className="text-xs text-slate-300">
+                  Thời lượng (phút) *
+                </Label>
                 <Input
                   type="number"
                   value={srvDuration}
@@ -1351,7 +1634,10 @@ function DashboardContent() {
                 onChange={(e) => setSrvPopular(e.target.checked)}
                 className="rounded border-slate-700 bg-slate-800 text-amber-500 focus:ring-amber-400"
               />
-              <Label htmlFor="popular" className="text-xs text-slate-300 cursor-pointer">
+              <Label
+                htmlFor="popular"
+                className="text-xs text-slate-300 cursor-pointer"
+              >
                 Đánh dấu là gói dịch vụ &ldquo;Ưa chuộng&rdquo;
               </Label>
             </div>
@@ -1366,13 +1652,26 @@ function DashboardContent() {
               >
                 Hủy bỏ
               </Button>
-              <Button type="submit" variant="gold" size="sm" disabled={saving} className="text-xs">
-                {saving ? "Đang lưu..." : editingService ? "Lưu thay đổi" : "Lưu dịch vụ"}
+              <Button
+                type="submit"
+                variant="gold"
+                size="sm"
+                disabled={saving}
+                className="text-xs"
+              >
+                {saving
+                  ? "Đang lưu..."
+                  : editingService
+                    ? "Lưu thay đổi"
+                    : "Lưu dịch vụ"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* HỘP XÁC NHẬN DÙNG CHUNG */}
+      {confirmDialog}
     </div>
   );
 }

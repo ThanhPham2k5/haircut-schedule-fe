@@ -523,6 +523,9 @@ as $$
 declare
   v_current uuid[];
   v_new uuid[];
+  v_old_date date;
+  v_old_time time;
+  v_now_vn timestamp := (now() at time zone 'Asia/Ho_Chi_Minh');
   v_found integer;
   v_duration integer;
   v_total integer;
@@ -537,6 +540,13 @@ begin
   end if;
   if not exists (select 1 from public.bookings where id = p_booking_id) then
     raise exception 'BOOKING_NOT_FOUND';
+  end if;
+  select booking_date, start_time into v_old_date, v_old_time
+  from public.bookings where id = p_booking_id;
+  -- Chỉ chặn khi đổi sang một mốc đã qua; giữ nguyên lịch cũ thì vẫn được sửa trạng thái/ghi chú
+  if (p_date, p_start_time) is distinct from (v_old_date, v_old_time)
+     and (p_date + p_start_time) <= v_now_vn then
+    raise exception 'PAST_SLOT';
   end if;
   if not exists (select 1 from public.profiles where id = p_barber_id and role = 'barber') then
     raise exception 'BARBER_UNAVAILABLE';

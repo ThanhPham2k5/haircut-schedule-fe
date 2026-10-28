@@ -3,7 +3,15 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { addDays } from "date-fns";
 import { toast } from "sonner";
-import { Calendar, Clock, Check, Play, CheckCircle2, XCircle, Star } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  Check,
+  Play,
+  CheckCircle2,
+  XCircle,
+  Star,
+} from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -17,6 +25,7 @@ import { getStatusLabel, getStatusBadgeVariant } from "@/lib/statusHelper";
 import { reportError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/providers/auth-provider";
+import { useConfirm } from "@/components/useConfirm";
 import type { BookingStatus } from "@/lib/types";
 
 export default function BarberSchedulePage() {
@@ -29,8 +38,11 @@ export default function BarberSchedulePage() {
 
 function ScheduleContent() {
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState<string>(toDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState<string>(
+    toDateKey(new Date()),
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { ask, confirmDialog } = useConfirm();
 
   // RLS chỉ trả về lịch hẹn của chính thợ đang đăng nhập
   const loadBookings = useCallback(() => fetchBookings(), []);
@@ -38,17 +50,26 @@ function ScheduleContent() {
     data: bookings = [],
     loading,
     reload,
-  } = useAsyncData(loadBookings, { errorMessage: "Không tải được lịch làm việc." });
+  } = useAsyncData(loadBookings, {
+    errorMessage: "Không tải được lịch làm việc.",
+  });
 
   const dayBookings = useMemo(
-    () => bookings.filter((b) => b.date === selectedDate && b.status !== "cancelled"),
-    [bookings, selectedDate]
+    () =>
+      bookings.filter(
+        (b) => b.date === selectedDate && b.status !== "cancelled",
+      ),
+    [bookings, selectedDate],
   );
 
   // Thống kê nhanh trong ngày của thợ
   const stats = useMemo(() => {
-    const completed = dayBookings.filter((b) => b.status === "completed").length;
-    const waiting = dayBookings.filter((b) => b.status === "confirmed" || b.status === "pending").length;
+    const completed = dayBookings.filter(
+      (b) => b.status === "completed",
+    ).length;
+    const waiting = dayBookings.filter(
+      (b) => b.status === "confirmed" || b.status === "pending",
+    ).length;
     const totalRev = dayBookings.reduce((sum, b) => sum + b.price, 0);
     return { total: dayBookings.length, completed, waiting, totalRev };
   }, [dayBookings]);
@@ -60,7 +81,10 @@ function ScheduleContent() {
     return Array.from(set).sort();
   }, [dayBookings]);
 
-  const handleUpdateStatus = async (bookingId: string, status: BookingStatus) => {
+  const handleUpdateStatus = async (
+    bookingId: string,
+    status: BookingStatus,
+  ) => {
     setBusyId(bookingId);
     try {
       await setBookingStatus(bookingId, status);
@@ -91,7 +115,9 @@ function ScheduleContent() {
                 Master Barber
               </Badge>
             </div>
-            {user?.specialty && <p className="text-xs text-gold font-medium">{user.specialty}</p>}
+            {user?.specialty && (
+              <p className="text-xs text-gold font-medium">{user.specialty}</p>
+            )}
             <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
               {user?.rating != null && (
                 <>
@@ -110,26 +136,39 @@ function ScheduleContent() {
         {/* THỐNG KÊ CA CỦA THỢ */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 block font-medium">Tổng số khách ca này</span>
+            <span className="text-xs text-slate-400 block font-medium">
+              Tổng số khách ca này
+            </span>
             <span className="text-2xl font-bold text-white mt-1 block">
-              {stats.total} <span className="text-xs text-slate-500 font-normal">lượt</span>
+              {stats.total}{" "}
+              <span className="text-xs text-slate-500 font-normal">lượt</span>
             </span>
           </div>
           <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 block font-medium">Đã hoàn thành</span>
+            <span className="text-xs text-slate-400 block font-medium">
+              Đã hoàn thành
+            </span>
             <span className="text-2xl font-bold text-info mt-1 block">
-              {stats.completed} <span className="text-xs text-slate-500 font-normal">khách</span>
+              {stats.completed}{" "}
+              <span className="text-xs text-slate-500 font-normal">khách</span>
             </span>
           </div>
           <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 block font-medium">Chờ phục vụ</span>
+            <span className="text-xs text-slate-400 block font-medium">
+              Chờ phục vụ
+            </span>
             <span className="text-2xl font-bold text-gold mt-1 block">
-              {stats.waiting} <span className="text-xs text-slate-500 font-normal">khách</span>
+              {stats.waiting}{" "}
+              <span className="text-xs text-slate-500 font-normal">khách</span>
             </span>
           </div>
           <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 block font-medium">Doanh thu ca làm</span>
-            <span className="text-xl font-bold text-ok font-mono mt-1 block">{formatVND(stats.totalRev)}</span>
+            <span className="text-xs text-slate-400 block font-medium">
+              Doanh thu ca làm
+            </span>
+            <span className="text-xl font-bold text-ok font-mono mt-1 block">
+              {formatVND(stats.totalRev)}
+            </span>
           </div>
         </div>
 
@@ -148,7 +187,9 @@ function ScheduleContent() {
                 Hôm nay ({getWeekdayVN(today)})
               </Button>
               <Button
-                variant={selectedDate === toDateKey(tomorrow) ? "gold" : "outline"}
+                variant={
+                  selectedDate === toDateKey(tomorrow) ? "gold" : "outline"
+                }
                 size="sm"
                 onClick={() => setSelectedDate(toDateKey(tomorrow))}
                 className="h-7 text-xs px-2.5"
@@ -163,10 +204,14 @@ function ScheduleContent() {
             <input
               type="date"
               value={selectedDate}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+              onChange={(e) =>
+                e.target.value && setSelectedDate(e.target.value)
+              }
               className="bg-slate-950 border border-slate-800 text-xs px-2.5 py-1 rounded-lg text-slate-200 focus:outline-none focus:border-amber-400"
             />
-            <span className="text-xs text-gold font-mono hidden sm:inline">({formatDateVN(selectedDate)})</span>
+            <span className="text-xs text-gold font-mono hidden sm:inline">
+              ({formatDateVN(selectedDate)})
+            </span>
           </div>
         </div>
 
@@ -174,7 +219,8 @@ function ScheduleContent() {
         <div className="bg-slate-900/80 rounded-2xl border border-slate-800 p-5 shadow-xl space-y-4">
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <Clock className="h-4 w-4 text-gold" />
-            Bảng Ca Làm Việc Chi Tiết Theo Từng Khung Giờ (Ngày {formatDateVN(selectedDate)})
+            Bảng Ca Làm Việc Chi Tiết Theo Từng Khung Giờ (Ngày{" "}
+            {formatDateVN(selectedDate)})
           </h2>
 
           {loading && bookings.length === 0 && (
@@ -188,7 +234,9 @@ function ScheduleContent() {
               const covering = booking
                 ? undefined
                 : dayBookings.find(
-                    (b) => timeToMinutes(time) > timeToMinutes(b.time) && timeToMinutes(time) < timeToMinutes(b.endTime)
+                    (b) =>
+                      timeToMinutes(time) > timeToMinutes(b.time) &&
+                      timeToMinutes(time) < timeToMinutes(b.endTime),
                   );
               const working = busyId === booking?.id;
 
@@ -200,8 +248,8 @@ function ScheduleContent() {
                       ? booking.status === "in_progress"
                         ? "bg-slate-900 border-cyan-500/60 ring-1 ring-cyan-500/30"
                         : booking.status === "completed"
-                        ? "bg-slate-950/60 border-slate-800/60 opacity-80"
-                        : "bg-slate-900 border-slate-800"
+                          ? "bg-slate-950/60 border-slate-800/60 opacity-80"
+                          : "bg-slate-900 border-slate-800"
                       : "bg-slate-950/40 border-dashed border-slate-800/60"
                   }`}
                 >
@@ -216,7 +264,11 @@ function ScheduleContent() {
                       {time}
                     </span>
                     <span className="text-xs text-slate-400 hidden sm:inline">
-                      {booking ? `${booking.durationMinutes}p` : covering ? "Đang bận" : "Trống"}
+                      {booking
+                        ? `${booking.durationMinutes}p`
+                        : covering
+                          ? "Đang bận"
+                          : "Trống"}
                     </span>
                   </div>
 
@@ -224,17 +276,28 @@ function ScheduleContent() {
                     {booking ? (
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-white text-sm">{booking.customerName}</span>
-                          <span className="text-xs text-slate-400">({booking.customerPhone})</span>
-                          <Badge variant={getStatusBadgeVariant(booking.status)} className="text-[10px]">
+                          <span className="font-bold text-white text-sm">
+                            {booking.customerName}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            ({booking.customerPhone})
+                          </span>
+                          <Badge
+                            variant={getStatusBadgeVariant(booking.status)}
+                            className="text-[10px]"
+                          >
                             {getStatusLabel(booking.status)}
                           </Badge>
                         </div>
 
                         <div className="text-xs text-slate-400 flex items-center gap-2">
-                          <span className="text-slate-200 font-medium">{booking.serviceName}</span>
+                          <span className="text-slate-200 font-medium">
+                            {booking.serviceName}
+                          </span>
                           <span>•</span>
-                          <span className="font-mono text-gold font-bold">{formatVND(booking.price)}</span>
+                          <span className="font-mono text-gold font-bold">
+                            {formatVND(booking.price)}
+                          </span>
                           <span>•</span>
                           <span className="font-mono">
                             {booking.time}–{booking.endTime}
@@ -242,15 +305,20 @@ function ScheduleContent() {
                         </div>
 
                         {booking.notes && (
-                          <p className="text-[11px] text-gold/80 italic">Yêu cầu khách: &ldquo;{booking.notes}&rdquo;</p>
+                          <p className="text-[11px] text-gold/80 italic">
+                            Yêu cầu khách: &ldquo;{booking.notes}&rdquo;
+                          </p>
                         )}
                       </div>
                     ) : covering ? (
                       <span className="text-xs text-slate-500 italic">
-                        Đang trong ca của {covering.customerName} (đến {covering.endTime})
+                        Đang trong ca của {covering.customerName} (đến{" "}
+                        {covering.endTime})
                       </span>
                     ) : (
-                      <span className="text-xs text-slate-500 italic">Chưa có khách đặt trong khung giờ này</span>
+                      <span className="text-xs text-slate-500 italic">
+                        Chưa có khách đặt trong khung giờ này
+                      </span>
                     )}
                   </div>
 
@@ -261,7 +329,9 @@ function ScheduleContent() {
                           size="sm"
                           variant="emerald"
                           disabled={working}
-                          onClick={() => handleUpdateStatus(booking.id, "confirmed")}
+                          onClick={() =>
+                            handleUpdateStatus(booking.id, "confirmed")
+                          }
                           className="h-7 px-2.5 text-xs"
                         >
                           <Check className="h-3.5 w-3.5 mr-1" />
@@ -274,7 +344,9 @@ function ScheduleContent() {
                           size="sm"
                           variant="gold"
                           disabled={working}
-                          onClick={() => handleUpdateStatus(booking.id, "in_progress")}
+                          onClick={() =>
+                            handleUpdateStatus(booking.id, "in_progress")
+                          }
                           className="h-7 px-2.5 text-xs"
                         >
                           <Play className="h-3.5 w-3.5 mr-1" />
@@ -287,7 +359,9 @@ function ScheduleContent() {
                           size="sm"
                           variant="secondary"
                           disabled={working}
-                          onClick={() => handleUpdateStatus(booking.id, "completed")}
+                          onClick={() =>
+                            handleUpdateStatus(booking.id, "completed")
+                          }
                           className="h-7 px-2.5 text-xs bg-emerald-600 text-[#fff] hover:bg-emerald-500"
                         >
                           <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
@@ -298,17 +372,28 @@ function ScheduleContent() {
                       {booking.status !== "completed" && (
                         <Button
                           size="sm"
-                          variant="ghost"
+                          variant="outline"
                           disabled={working}
-                          onClick={() => {
-                            if (confirm("Khách không đến / hủy ca này?")) {
-                              void handleUpdateStatus(booking.id, "cancelled");
-                            }
-                          }}
-                          className="h-7 px-2 text-xs text-slate-500 hover:text-bad"
+                          onClick={() =>
+                            ask({
+                              title: "Hủy ca này?",
+                              description:
+                                "Dùng khi khách không đến hoặc không thể cắt. Khung giờ sẽ được mở lại.",
+                              confirmLabel: "Hủy ca",
+                              cancelLabel: "Quay lại",
+                              destructive: true,
+                              onConfirm: () =>
+                                void handleUpdateStatus(
+                                  booking.id,
+                                  "cancelled",
+                                ),
+                            })
+                          }
+                          className="h-7 px-2.5 text-xs border-slate-700 text-slate-300 hover:text-bad hover:border-bad"
                           title="Khách không đến / Hủy ca"
                         >
-                          <XCircle className="h-3.5 w-3.5" />
+                          <XCircle className="h-3.5 w-3.5 mr-1" />
+                          Hủy ca
                         </Button>
                       )}
                     </div>
@@ -321,6 +406,7 @@ function ScheduleContent() {
       </main>
 
       <Footer />
+      {confirmDialog}
     </div>
   );
 }

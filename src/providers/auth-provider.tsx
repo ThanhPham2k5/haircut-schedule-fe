@@ -11,7 +11,11 @@ import React, {
 import type { Session } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import { AppError, reportError } from "@/lib/errors";
-import { fetchProfile, updateProfile as updateProfileRequest, type ProfilePatch } from "@/lib/data";
+import {
+  fetchProfile,
+  updateProfile as updateProfileRequest,
+  type ProfilePatch,
+} from "@/lib/data";
 import type { User, UserRole } from "@/lib/types";
 
 const ROLE_NAMES: Record<UserRole, string> = {
@@ -31,10 +35,13 @@ interface AuthContextValue {
   user: User | null;
   /** true khi đang khôi phục phiên / tải hồ sơ lần đầu */
   loading: boolean;
-  signIn: (email: string, password: string, requiredRole?: UserRole) => Promise<User>;
+  signIn: (
+    email: string,
+    password: string,
+    requiredRole?: UserRole,
+  ) => Promise<User>;
   /** needsVerification = true nghĩa là Supabase đã gửi mã OTP tới email */
   signUp: (input: RegisterInput) => Promise<{ needsVerification: boolean }>;
-  verifyEmailOtp: (email: string, token: string) => Promise<void>;
   resendSignupOtp: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (patch: ProfilePatch) => Promise<User>;
@@ -109,33 +116,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [userId, reloadKey]);
 
   const loading =
-    initializing || (userId !== null && (profileStatus === "idle" || profileStatus === "loading"));
+    initializing ||
+    (userId !== null &&
+      (profileStatus === "idle" || profileStatus === "loading"));
 
   const signIn = useCallback<AuthContextValue["signIn"]>(
     async (email, password, requiredRole) => {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       if (error) throw error;
 
       const prof = await fetchProfile(data.user.id);
       if (!prof) {
         await supabase.auth.signOut();
-        throw new AppError("Không tìm thấy hồ sơ tài khoản. Vui lòng liên hệ quản lý salon.");
+        throw new AppError(
+          "Không tìm thấy hồ sơ tài khoản. Vui lòng liên hệ quản lý salon.",
+        );
       }
       if (prof.isLocked) {
         await supabase.auth.signOut();
-        throw new AppError("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản lý salon.");
+        throw new AppError(
+          "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản lý salon.",
+        );
       }
       if (requiredRole && prof.role !== requiredRole) {
         await supabase.auth.signOut();
         throw new AppError(
-          `Tài khoản này là ${ROLE_NAMES[prof.role]}. Không thể đăng nhập tại đây.`
+          `Tài khoản này là ${ROLE_NAMES[prof.role]}. Không thể đăng nhập tại đây.`,
         );
       }
       setProfile(prof);
       setProfileStatus("ready");
       return prof;
     },
-    [supabase]
+    [supabase],
   );
 
   const signUp = useCallback<AuthContextValue["signUp"]>(
@@ -145,26 +161,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password: input.password,
         options: {
           data: { full_name: input.fullName, phone: input.phone },
+          emailRedirectTo: `${window.location.origin}/customer/booking`,
         },
       });
       if (error) throw error;
       // Email đã tồn tại: Supabase trả về user giả với identities rỗng (chống dò email)
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        throw new AppError("Email này đã được đăng ký. Vui lòng chuyển sang Đăng Nhập.");
+      if (
+        data.user &&
+        Array.isArray(data.user.identities) &&
+        data.user.identities.length === 0
+      ) {
+        throw new AppError(
+          "Email này đã được đăng ký. Vui lòng chuyển sang Đăng Nhập.",
+        );
       }
       return { needsVerification: !data.session };
     },
-    [supabase]
-  );
-
-  const verifyEmailOtp = useCallback<AuthContextValue["verifyEmailOtp"]>(
-    async (email, token) => {
-      const first = await supabase.auth.verifyOtp({ email, token, type: "email" });
-      if (!first.error) return;
-      const second = await supabase.auth.verifyOtp({ email, token, type: "signup" });
-      if (second.error) throw first.error;
-    },
-    [supabase]
+    [supabase],
   );
 
   const resendSignupOtp = useCallback<AuthContextValue["resendSignupOtp"]>(
@@ -172,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.resend({ type: "signup", email });
       if (error) throw error;
     },
-    [supabase]
+    [supabase],
   );
 
   const signOut = useCallback(async () => {
@@ -189,15 +202,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(updated);
       return updated;
     },
-    [userId]
+    [userId],
   );
 
   const changePassword = useCallback<AuthContextValue["changePassword"]>(
     async (newPassword) => {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
       if (error) throw error;
     },
-    [supabase]
+    [supabase],
   );
 
   const refreshProfile = useCallback(async () => {
@@ -210,7 +225,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       signIn,
       signUp,
-      verifyEmailOtp,
       resendSignupOtp,
       signOut,
       updateProfile,
@@ -222,13 +236,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       signIn,
       signUp,
-      verifyEmailOtp,
       resendSignupOtp,
       signOut,
       updateProfile,
       changePassword,
       refreshProfile,
-    ]
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
