@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* Màu chữ nhấn theo ngữ nghĩa - tự đổi độ đậm giữa giao diện tối / sáng */
+@theme inline {
+  --color-gold: var(--fg-gold);
+  --color-ok: var(--fg-ok);
+  --color-bad: var(--fg-bad);
+  --color-info: var(--fg-info);
+  --color-live: var(--fg-live);
+}
+
+:root {
+  --background: #090c10;
+  --foreground: #f3f4f6;
+  --card: #0f141d;
+  --card-foreground: #f3f4f6;
+  --popover: #121824;
+  --popover-foreground: #f3f4f6;
+  --primary: #f59e0b;
+  --primary-foreground: #090c10;
+  --secondary: #1a2232;
+  --secondary-foreground: #e2e8f0;
+  --muted: #151b27;
+  --muted-foreground: #94a3b8;
+  --accent: #202a3d;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #1e293b;
+  --input: #1e293b;
+  --ring: #f59e0b;
+  --radius: 0.75rem;
+}
+
+
+/* Màu chữ nhấn - giao diện tối */
+:root {
+  --fg-gold: #fbbf24;
+  --fg-ok: #34d399;
+  --fg-bad: #fb7185;
+  --fg-info: #60a5fa;
+  --fg-live: #22d3ee;
+  color-scheme: dark;
+}
+
+/*
+ * GIAO DIỆN SÁNG
+ * Toàn bộ UI dùng thang màu slate của Tailwind (bg-slate-900, text-slate-300...) thiết kế cho nền tối.
+ * Khi KHÔNG có class "dark" ta đảo ngược thang slate (50<->950, 100<->900...) và đảo màu trắng,
+ * nên mọi component tự có giao diện sáng với độ tương phản tương đương mà không phải sửa từng class.
+ */
+html:not(.dark) {
+  color-scheme: light;
+
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #d97706;
+  --primary-foreground: #0f172a;
+  --secondary: #e2e8f0;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --accent: #e2e8f0;
+  --accent-foreground: #0f172a;
+  --border: #cbd5e1;
+  --input: #cbd5e1;
+
+  --fg-gold: #b45309;
+  --fg-ok: #047857;
+  --fg-bad: #be123c;
+  --fg-info: #1d4ed8;
+  --fg-live: #0e7490;
+
+  --color-white: #0f172a;
+  --color-slate-50: #020617;
+  --color-slate-100: #0f172a;
+  --color-slate-200: #1e293b;
+  --color-slate-300: #334155;
+  --color-slate-400: #475569;
+  --color-slate-500: #64748b;
+  --color-slate-600: #94a3b8;
+  --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0;
+  --color-slate-900: #f1f5f9;
+  --color-slate-950: #f8fafc;
+}
+
+/* Tăng cỡ chữ cơ sở toàn bộ hệ thống để người lớn tuổi dễ đọc */
+html {
+  font-size: 17px;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+}
+
+/* Glassmorphism helpers */
+.glass {
+  background: rgba(15, 20, 29, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(26, 34, 50, 0.6) 0%, rgba(15, 20, 29, 0.8) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-slate-700, #273347);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-slate-600, #3b4c68);
+}

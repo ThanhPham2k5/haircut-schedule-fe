@@ -1,0 +1,685 @@
+"use client";
+
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
+import { AuthGuard } from "@/components/AuthGuard";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { FieldError, errorRing } from "@/components/FieldError";
+import {
+  fetchServices,
+  fetchBarbers,
+  fetchBarberSchedule,
+  fetchBarberBusy,
+  createBooking,
+} from "@/lib/data";
+import { formatVND, formatDateVN, getWeekdayVN, shortBookingCode, toDateKey } from "@/lib/format";
+import { computeSlots, slotReasonLabel } from "@/lib/slots";
+import { bookingRequestSchema } from "@/lib/schemas";
+import { validateWithToast, type FieldErrors } from "@/lib/validation";
+import { reportError } from "@/lib/errors";
+import { useAsyncData } from "@/hooks/use-async-data";
+import { useAuth } from "@/providers/auth-provider";
+import { addDays } from "date-fns";
+import { toast } from "sonner";
+import { UserAvatar } from "@/components/UserAvatar";
+import {
+  Check,
+  ChevronRight,
+  ChevronLeft,
+  ArrowRight,
+  Sparkles,
+} from "lucide-react";
+import Link from "next/link";
+
+interface CreatedBooking {
+  id: string;
+  date: string;
+  time: string;
+  price: number;
+  barberName: string;
+}
+
+export default function CustomerBookingPage() {
+  return (
+    <AuthGuard allowedRoles={["customer"]} pageTitle="Đặt lịch cắt tóc">
+      <BookingContent />
+    </AuthGuard>
+  );
+}
+
+function BookingContent() {
+  const { user } = useAuth();
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+
+  // Lựa chọn
+  const [selectedServiceId, setSelectedServiceId] = useState<string>("");
+  const [selectedBarberId, setSelectedBarberId] = useState<string>("");
+  const [selectedDate, setSelectedDate] = useState<string>(toDateKey(new Date()));
+  const [selectedTime, setSelectedTime] = useState<string>("");
+  const [notes, setNotes] = useState("");
+  const [errors, setErrors] = useState<FieldErrors>({});
+
+  const [createdBooking, setCreatedBooking] = useState<CreatedBooking | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Dữ liệu từ Supabase
+  const loadServices = useCallback(() => fetchServices({ activeOnly: true }), []);
+  const loadBarbers = useCallback(() => fetchBarbers({ activeOnly: true }), []);
+  const { data: services = [], loading: servicesLoading } = useAsyncData(loadServices, {
+    errorMessage: "Không tải được danh sách dịch vụ.",
+  });
+  const { data: barbers = [], loading: barbersLoading } = useAsyncData(loadBarbers, {
+    errorMessage: "Không tải được danh sách thợ.",
+  });
+
+  const selectedService = services.find((s) => s.id === selectedServiceId) ?? null;
+  const selectedBarber = barbers.find((b) => b.id === selectedBarberId) ?? null;
+
+  // Mặc định chọn dịch vụ / thợ đầu tiên khi dữ liệu về
+  useEffect(() => {
+    if (!selectedServiceId && services.length > 0) setSelectedServiceId(services[0].id);
+  }, [services, selectedServiceId]);
+  useEffect(() => {
+    if (!selectedBarberId && barbers.length > 0) setSelectedBarberId(barbers[0].id);
+  }, [barbers, selectedBarberId]);
+
+  // Lịch làm việc của thợ + các khoảng giờ đã bận trong ngày
+  const loadSchedule = useCallback(
+    () => fetchBarberSchedule(selectedBarberId),
+    [selectedBarberId]
+  );
+  const { data: schedule = [], loading: scheduleLoading } = useAsyncData(loadSchedule, {
+    enabled: Boolean(selectedBarberId),
+    errorMessage: "Không tải được lịch làm việc của thợ.",
+  });
+
+  const loadBusy = useCallback(
+    () => fetchBarberBusy(selectedBarberId, selectedDate),
+    [selectedBarberId, selectedDate]
+  );
+  const {
+    data: busy = [],
+    loading: busyLoading,
+    reload: reloadBusy,
+  } = useAsyncData(loadBusy, {
+    enabled: Boolean(selectedBarberId && selectedDate),
+    errorMessage: "Không tải được khung giờ trống.",
+  });
+
+  // Tính toán khung giờ khả dụng cho thợ, ngày và dịch vụ đã chọn
+  const timeSlots = useMemo(() => {
+    if (!selectedBarberId || !selectedService) return [];
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    const dayOfWeek = new Date(y, m - 1, d).getDay();
+    return computeSlots({
+      date: selectedDate,
+      durationMinutes: selectedService.durationMinutes,
+      schedule: schedule.find((s) => s.dayOfWeek === dayOfWeek),
+      busy,
+    });
+  }, [selectedBarberId, selectedService, selectedDate, schedule, busy]);
+
+  // Nếu giờ đã chọn không còn khả dụng khi đổi ngày / thợ / dịch vụ thì bỏ chọn
+  useEffect(() => {
+    if (!selectedTime) return;
+    const match = timeSlots.find((s) => s.time === selectedTime);
+    if (match && !match.available) setSelectedTime("");
+  }, [timeSlots, selectedTime]);
+
+  // 5 ngày gần nhất với định dạng dd/MM/yyyy và kèm cụ thể thứ trong tuần
+  const upcomingDates = useMemo(() => {
+    const list = [];
+    for (let i = 0; i < 5; i++) {
+      const d = addDays(new Date(), i);
+      const dayOfWeek = getWeekdayVN(d);
+      const dayName =
+        i === 0 ? `Hôm nay (${dayOfWeek})` : i === 1 ? `Ngày mai (${dayOfWeek})` : dayOfWeek;
+      list.push({
+        dateStr: toDateKey(d),
+        dayName,
+        dayFormattedVN: formatDateVN(d),
+      });
+    }
+    return list;
+  }, []);
+
+  const handleConfirm = async () => {
+    if (!selectedService || !selectedBarber) {
+      toast.error("Vui lòng chọn đủ dịch vụ, thợ và khung giờ");
+      return;
+    }
+    const result = validateWithToast(
+      bookingRequestSchema,
+      {
+        serviceIds: [selectedService.id],
+        barberId: selectedBarber.id,
+        date: selectedDate,
+        time: selectedTime,
+        notes,
+      },
+      setErrors
+    );
+    if (!result.success) {
+      if (result.errors.time || result.errors.date) setStep(3);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const bookingId = await createBooking({
+        barberId: result.data.barberId,
+        date: result.data.date,
+        time: result.data.time,
+        serviceIds: result.data.serviceIds,
+        notes: result.data.notes,
+      });
+      setCreatedBooking({
+        id: bookingId,
+        date: result.data.date,
+        time: result.data.time,
+        price: selectedService.price,
+        barberName: selectedBarber.name,
+      });
+      setStep(5);
+      toast.success("Đặt lịch thành công!", {
+        description: `Lịch hẹn lúc ${result.data.time} ngày ${formatDateVN(result.data.date)} đã được gửi đến salon.`,
+      });
+    } catch (err) {
+      const message = reportError(err, "Có lỗi xảy ra khi lưu lịch hẹn");
+      // Giờ vừa bị người khác đặt / thợ nghỉ...: tải lại giờ trống và quay về bước chọn giờ
+      if (/đặt trước|nghỉ|ngoài ca|đã qua/i.test(message)) {
+        setSelectedTime("");
+        setStep(3);
+        void reloadBusy();
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-background text-slate-100">
+      <Navbar />
+
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8">
+        {/* Thanh tiến trình tinh giản */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between max-w-2xl mx-auto px-2">
+            {[
+              { num: 1, label: "Dịch vụ" },
+              { num: 2, label: "Chọn thợ" },
+              { num: 3, label: "Giờ cắt" },
+              { num: 4, label: "Thông tin" },
+            ].map((s) => (
+              <div
+                key={s.num}
+                onClick={() => {
+                  if (s.num < step && step !== 5) setStep(s.num as 1 | 2 | 3 | 4);
+                }}
+                className={`flex items-center gap-2 cursor-pointer transition-colors ${
+                  step === s.num
+                    ? "text-gold font-bold"
+                    : step > s.num
+                    ? "text-slate-300"
+                    : "text-slate-600"
+                }`}
+              >
+                <div
+                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                    step === s.num
+                      ? "bg-amber-500 text-neutral-950 shadow-md shadow-amber-500/20"
+                      : step > s.num
+                      ? "bg-emerald-600 text-[#fff]"
+                      : "bg-slate-800 text-slate-500"
+                  }`}
+                >
+                  {step > s.num ? <Check className="h-3.5 w-3.5" /> : s.num}
+                </div>
+                <span className="text-xs hidden sm:inline">{s.label}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="w-full max-w-2xl mx-auto mt-3 h-1 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-amber-500 transition-all duration-300"
+              style={{ width: `${step === 5 ? 100 : ((step - 1) / 3) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* BƯỚC 1: CHỌN DỊCH VỤ */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <div className="text-center space-y-1">
+              <h1 className="text-2xl font-bold text-white">Bước 1: Chọn Dịch Vụ Cắt Tóc</h1>
+              <p className="text-xs text-slate-400">Chọn gói dịch vụ phù hợp với phong cách của bạn</p>
+            </div>
+
+            {servicesLoading && <p className="text-center text-xs text-slate-500">Đang tải dịch vụ...</p>}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {services.map((srv) => {
+                const isSelected = selectedService?.id === srv.id;
+                return (
+                  <div
+                    key={srv.id}
+                    onClick={() => setSelectedServiceId(srv.id)}
+                    className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
+                      isSelected
+                        ? "bg-slate-900 border-amber-400 ring-1 ring-amber-400 shadow-lg shadow-amber-500/10"
+                        : "bg-slate-950/70 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-white text-sm">{srv.name}</h3>
+                          {srv.popular && (
+                            <Badge variant="gold" className="text-[10px] py-0 px-1.5">
+                              Ưa chuộng
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gold/90 font-medium mt-0.5">
+                          {srv.tagline}
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-base font-bold text-gold font-mono">
+                          {formatVND(srv.price)}
+                        </span>
+                        <span className="block text-[11px] text-slate-500">
+                          {srv.durationMinutes} phút
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-400 mt-2 line-clamp-2 leading-relaxed">
+                      {srv.description}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                variant="gold"
+                size="lg"
+                disabled={!selectedService}
+                onClick={() => setStep(2)}
+                className="text-xs font-semibold gap-2"
+              >
+                Tiếp tục chọn thợ
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BƯỚC 2: CHỌN THỢ CẮT TÓC */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <div className="text-center space-y-1">
+              <h1 className="text-2xl font-bold text-white">Bước 2: Chọn Thợ Cắt Tóc</h1>
+              <p className="text-xs text-slate-400">Đội ngũ Master Barber tay nghề cao của tiệm</p>
+            </div>
+
+            {barbersLoading && <p className="text-center text-xs text-slate-500">Đang tải danh sách thợ...</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {barbers.map((b) => {
+                const isSelected = selectedBarber?.id === b.id;
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => {
+                      setSelectedBarberId(b.id);
+                      setSelectedTime("");
+                    }}
+                    className={`p-5 rounded-xl border text-center cursor-pointer transition-all duration-200 ${
+                      isSelected
+                        ? "bg-slate-900 border-amber-400 ring-1 ring-amber-400 shadow-lg shadow-amber-500/10"
+                        : "bg-slate-950/70 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex justify-center mb-3">
+                      <UserAvatar name={b.name} role="barber" size="xl" />
+                    </div>
+                    <h3 className="font-bold text-white text-sm">{b.name}</h3>
+                    <p className="text-xs text-gold mt-0.5">{b.specialty}</p>
+                    <p className="text-xs text-slate-400 mt-2 line-clamp-2 leading-relaxed">
+                      {b.bio}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(1)}
+                className="text-xs border-slate-700"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Quay lại
+              </Button>
+
+              <Button
+                variant="gold"
+                size="sm"
+                disabled={!selectedBarber}
+                onClick={() => setStep(3)}
+                className="text-xs font-semibold gap-1.5"
+              >
+                Tiếp tục chọn giờ
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BƯỚC 3: CHỌN NGÀY & KHUNG GIỜ (ĐỊNH DẠNG dd/MM/yyyy) */}
+        {step === 3 && (
+          <div className="space-y-6">
+            <div className="text-center space-y-1">
+              <h1 className="text-2xl font-bold text-white">Bước 3: Chọn Ngày &amp; Khung Giờ</h1>
+              <p className="text-xs text-slate-400">
+                Lịch trống của thợ <strong className="text-gold">{selectedBarber?.name}</strong>
+              </p>
+            </div>
+
+            <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 space-y-5">
+              {/* Chọn Ngày Format dd/MM/yyyy */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-slate-300">Chọn ngày hẹn:</Label>
+                  <span className="text-xs text-gold font-mono font-bold">
+                    Ngày đã chọn: {formatDateVN(selectedDate)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {upcomingDates.map((item) => {
+                    const isActive = selectedDate === item.dateStr;
+                    return (
+                      <button
+                        key={item.dateStr}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDate(item.dateStr);
+                          setSelectedTime("");
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                          isActive
+                            ? "bg-amber-500 text-neutral-950 font-bold border-amber-400 shadow-md"
+                            : "bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700"
+                        }`}
+                      >
+                        <span className="block text-xs font-semibold">{item.dayName}</span>
+                        <span className="block text-[11px] font-mono mt-0.5">{item.dayFormattedVN}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Khung giờ trực quan */}
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-slate-300">
+                    Khung giờ còn trống ngày {formatDateVN(selectedDate)}:
+                  </Label>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                      Còn trống
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-slate-700"></span>
+                      Đã kín
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                  {(scheduleLoading || busyLoading) && (
+                    <p className="col-span-full text-xs text-slate-500 py-2">Đang tải khung giờ trống...</p>
+                  )}
+                  {timeSlots.map((slot) => {
+                    const isSelected = selectedTime === slot.time;
+                    const isAvailable = slot.available;
+
+                    return (
+                      <button
+                        key={slot.time}
+                        type="button"
+                        disabled={!isAvailable}
+                        onClick={() => setSelectedTime(slot.time)}
+                        className={`p-2.5 rounded-xl border text-center transition-all duration-150 ${
+                          isSelected
+                            ? "bg-amber-500 text-neutral-950 font-bold border-amber-400 shadow-md ring-2 ring-amber-400"
+                            : isAvailable
+                            ? "bg-slate-950 border-emerald-500/40 text-ok hover:bg-emerald-500/15 cursor-pointer font-medium"
+                            : "bg-slate-950/60 border-slate-800/60 text-slate-600 opacity-60 cursor-not-allowed"
+                        }`}
+                      >
+                        <span className="block text-xs font-mono">{slot.time}</span>
+                        <span className="block text-[9px] mt-0.5">
+                          {isSelected ? "Đã chọn" : isAvailable ? "Còn chỗ" : slotReasonLabel(slot.reason)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(2)}
+                className="text-xs border-slate-700"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Quay lại
+              </Button>
+
+              <Button
+                variant="gold"
+                size="sm"
+                disabled={!selectedTime}
+                onClick={() => setStep(4)}
+                className="text-xs font-semibold gap-1.5"
+              >
+                Tiếp tục nhập thông tin
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BƯỚC 4: THÔNG TIN KHÁCH HÀNG & XÁC NHẬN */}
+        {step === 4 && (
+          <div className="space-y-6">
+            <div className="text-center space-y-1">
+              <h1 className="text-2xl font-bold text-white">Bước 4: Thông Tin &amp; Xác Nhận</h1>
+              <p className="text-xs text-slate-400">Kiểm tra lại thông tin trước khi hoàn tất đặt lịch</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Form thông tin */}
+              <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 space-y-3.5">
+                <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-2">
+                  Thông Tin Liên Hệ Của Bạn
+                </h3>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs space-y-1.5">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-400">Họ và tên:</span>
+                    <span className="font-semibold text-white">{user?.name}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-400">Số điện thoại:</span>
+                    <span className="font-semibold text-white font-mono">{user?.phone || "Chưa cập nhật"}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-400">Email:</span>
+                    <span className="font-mono text-slate-300 break-all">{user?.email}</span>
+                  </div>
+                  <p className="pt-1 text-[11px] text-slate-500">
+                    Thông tin lấy từ tài khoản của bạn.{" "}
+                    <Link href="/profile" className="text-gold hover:underline">
+                      Chỉnh sửa hồ sơ
+                    </Link>
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-300">Ghi chú về kiểu tóc / Yêu cầu riêng</Label>
+                  <Input
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Ví dụ: Cắt Fade thấp, tỉa mái layer..."
+                    className={`h-9 text-xs bg-slate-950 border-slate-800 ${errorRing(errors.notes)}`}
+                  />
+                  <FieldError message={errors.notes} />
+                </div>
+              </div>
+
+              {/* Tóm tắt phiếu hẹn */}
+              <div className="bg-slate-950 p-5 rounded-2xl border border-amber-500/30 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-xs font-bold uppercase text-gold">Phiếu Đặt Lịch Hẹn</span>
+                  <Badge variant="pending">Chờ xác nhận</Badge>
+                </div>
+
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Gói dịch vụ:</span>
+                    <span className="font-semibold text-white">{selectedService?.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Thợ phụ trách:</span>
+                    <span className="font-semibold text-white">{selectedBarber?.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Ngày hẹn:</span>
+                    <span className="font-semibold text-white font-mono">{formatDateVN(selectedDate)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Khung giờ:</span>
+                    <span className="font-bold text-gold font-mono text-sm">{selectedTime}</span>
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-slate-800 text-sm">
+                    <span className="text-slate-300 font-medium">Tổng tiền thanh toán tại tiệm:</span>
+                    <span className="font-extrabold text-gold font-mono">
+                      {formatVND(selectedService?.price || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 italic">
+                  * Không cần thanh toán trước. Quý khách thanh toán tại salon sau khi hoàn tất dịch vụ.
+                </p>
+
+                <Button
+                  variant="gold"
+                  size="lg"
+                  disabled={isSubmitting || !selectedTime}
+                  onClick={handleConfirm}
+                  className="w-full text-xs font-bold gap-2"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {isSubmitting ? "Đang lưu lịch..." : "Xác Nhận Đặt Lịch Ngay"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex justify-start pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(3)}
+                className="text-xs border-slate-700"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Đổi giờ hoặc ngày
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* BƯỚC 5: ĐẶT LỊCH THÀNH CÔNG */}
+        {step === 5 && createdBooking && (
+          <div className="bg-slate-900/90 border border-emerald-500/40 p-8 rounded-2xl text-center space-y-5 max-w-lg mx-auto shadow-2xl">
+            <div className="h-14 w-14 rounded-full bg-emerald-500/20 text-ok border border-emerald-500/40 flex items-center justify-center mx-auto">
+              <Check className="h-7 w-7" />
+            </div>
+
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold text-white">Đặt Lịch Hẹn Thành Công!</h2>
+              <p className="text-xs text-slate-400">
+                Cảm ơn quý khách <strong>{user?.name}</strong> đã tin tưởng Vanguard &amp; Blade
+              </p>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-left text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Mã lịch hẹn:</span>
+                <span className="font-mono font-bold text-gold">{shortBookingCode(createdBooking.id)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Thời gian:</span>
+                <span className="font-semibold text-white font-mono">
+                  {createdBooking.time} • Ngày {formatDateVN(createdBooking.date)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Thợ phục vụ:</span>
+                <span className="font-semibold text-white">{createdBooking.barberName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Chi phí dự kiến:</span>
+                <span className="font-bold text-gold font-mono">
+                  {formatVND(createdBooking.price)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+              <Button variant="gold" size="sm" asChild className="w-full sm:w-auto text-xs">
+                <Link href="/customer/appointments">
+                  Xem Danh Sách Lịch Hẹn Của Tôi
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Link>
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setStep(1);
+                  setSelectedTime("");
+                  setCreatedBooking(null);
+                }}
+                className="w-full sm:w-auto text-xs border-slate-700"
+              >
+                Đặt thêm lịch khác
+              </Button>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <Footer />
+    </div>
+  );
+}
