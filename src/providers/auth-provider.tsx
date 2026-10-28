@@ -42,6 +42,7 @@ interface AuthContextValue {
   ) => Promise<User>;
   /** needsVerification = true nghĩa là Supabase đã gửi mã OTP tới email */
   signUp: (input: RegisterInput) => Promise<{ needsVerification: boolean }>;
+  verifyEmailOtp: (email: string, token: string) => Promise<void>;
   resendSignupOtp: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (patch: ProfilePatch) => Promise<User>;
@@ -161,7 +162,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password: input.password,
         options: {
           data: { full_name: input.fullName, phone: input.phone },
-          emailRedirectTo: `${window.location.origin}/customer/booking`,
+          // Link trong email luôn đưa khách về domain production (không dùng domain preview/localhost)
+          // Đặt NEXT_PUBLIC_SITE_URL = https://haircut-schedule-fe.vercel.app trên Vercel và local
+          emailRedirectTo: `${(process.env.NEXT_PUBLIC_SITE_URL || window.location.origin).replace(/\/$/, "")}/customer/booking`,
         },
       });
       if (error) throw error;
@@ -176,6 +179,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       }
       return { needsVerification: !data.session };
+    },
+    [supabase],
+  );
+
+  const verifyEmailOtp = useCallback<AuthContextValue["verifyEmailOtp"]>(
+    async (email, token) => {
+      const first = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: "email",
+      });
+      if (!first.error) return;
+      const second = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: "signup",
+      });
+      if (second.error) throw first.error;
     },
     [supabase],
   );
@@ -225,6 +246,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       signIn,
       signUp,
+      verifyEmailOtp,
       resendSignupOtp,
       signOut,
       updateProfile,
@@ -236,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       signIn,
       signUp,
+      verifyEmailOtp,
       resendSignupOtp,
       signOut,
       updateProfile,
