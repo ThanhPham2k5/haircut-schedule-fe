@@ -81,6 +81,9 @@ async function seedAccounts() {
       console.log(`+ ${acc.role.padEnd(8)} ${acc.email}`);
     }
 
+    // Luôn đồng bộ vai trò, kể cả tài khoản đã có từ trước
+    await syncRole(userId, acc.role);
+
     if (acc.role === "barber") {
       const { error: updateError } = await supabase
         .from("profiles")
@@ -94,6 +97,18 @@ async function seedAccounts() {
       if (updateError) throw new Error(`profile ${acc.email}: ${updateError.message}`);
     }
   }
+}
+
+/** Đảm bảo vai trò đúng ở cả app_metadata lẫn profiles.
+ *  Tài khoản đã tồn tại từ lần seed trước (hoặc tạo tay) có thể đang là customer nên phải cập nhật lại.
+ *  Cập nhật profiles.role sẽ kích hoạt trigger tạo barber_schedule cho thợ. */
+async function syncRole(userId, role) {
+  const { error: metaError } = await supabase.auth.admin.updateUserById(userId, {
+    app_metadata: { role },
+  });
+  if (metaError) throw new Error(`app_metadata ${userId}: ${metaError.message}`);
+  const { error } = await supabase.from("profiles").update({ role }).eq("id", userId);
+  if (error) throw new Error(`profiles.role ${userId}: ${error.message}`);
 }
 
 async function seedServices() {

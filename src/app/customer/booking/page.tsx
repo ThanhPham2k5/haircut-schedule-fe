@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
+import { Pagination, usePagination } from "@/components/Pagination";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -8,6 +15,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ServiceCategory } from "@/lib/types";
 import { FieldError, errorRing } from "@/components/FieldError";
 import {
   fetchServices,
@@ -38,6 +53,7 @@ import {
   ChevronLeft,
   ArrowRight,
   Sparkles,
+  Search,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -48,6 +64,26 @@ interface CreatedBooking {
   price: number;
   barberName: string;
 }
+
+/** Bỏ dấu tiếng Việt và viết thường để tìm kiếm "cat toc" vẫn khớp "Cắt tóc" */
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d");
+}
+
+type ServiceSort = "popular" | "price-asc" | "price-desc" | "duration";
+type BarberSort = "rating" | "reviews" | "name";
+
+const SERVICE_FILTERS: { value: ServiceCategory | "all"; label: string }[] = [
+  { value: "all", label: "Tất cả" },
+  { value: "haircut", label: "Cắt tóc" },
+  { value: "beard", label: "Chăm sóc râu" },
+  { value: "combo", label: "Combo" },
+  { value: "treatment", label: "Chăm sóc tóc" },
+];
 
 export default function CustomerBookingPage() {
   return (
@@ -114,12 +150,83 @@ function BookingContent() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
+  // Tìm kiếm & lọc dịch vụ (bước 1)
+  const [serviceQuery, setServiceQuery] = useState("");
+  const [serviceCategory, setServiceCategory] = useState<
+    ServiceCategory | "all"
+  >("all");
+  const [serviceSort, setServiceSort] = useState<ServiceSort>("popular");
+
+  // Tìm kiếm & sắp xếp thợ (bước 2)
+  const [barberQuery, setBarberQuery] = useState("");
+  const [barberSort, setBarberSort] = useState<BarberSort>("rating");
+
+  const filteredServices = useMemo(() => {
+    const q = normalizeText(serviceQuery.trim());
+    const list = services.filter((s) => {
+      if (serviceCategory !== "all" && s.category !== serviceCategory)
+        return false;
+      if (!q) return true;
+      return normalizeText(`${s.name} ${s.tagline}`).includes(q);
+    });
+    switch (serviceSort) {
+      case "price-asc":
+        return list.sort((a, b) => a.price - b.price);
+      case "price-desc":
+        return list.sort((a, b) => b.price - a.price);
+      case "duration":
+        return list.sort((a, b) => a.durationMinutes - b.durationMinutes);
+      default:
+        // Gói "Ưa chuộng" lên trước, giữ thứ tự gốc cho phần còn lại
+        return list.sort((a, b) => Number(b.popular) - Number(a.popular));
+    }
+  }, [services, serviceQuery, serviceCategory, serviceSort]);
+
+  const filteredBarbers = useMemo(() => {
+    const q = normalizeText(barberQuery.trim());
+    const list = barbers.filter(
+      (b) => !q || normalizeText(`${b.name} ${b.specialty ?? ""}`).includes(q),
+    );
+    switch (barberSort) {
+      case "reviews":
+        return list.sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
+      case "name":
+        return list.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+      default:
+        return list.sort(
+          (a, b) =>
+            (b.rating ?? 0) - (a.rating ?? 0) ||
+            (b.reviewCount ?? 0) - (a.reviewCount ?? 0) ||
+            a.name.localeCompare(b.name, "vi"),
+        );
+    }
+  }, [barbers, barberQuery, barberSort]);
+
+  // Phân trang: 6 mục mỗi trang cho dịch vụ và thợ
+  const servicesTopRef = useRef<HTMLDivElement>(null);
+  const barbersTopRef = useRef<HTMLDivElement>(null);
+  const servicePaging = usePagination(
+    filteredServices,
+    6,
+    [serviceQuery, serviceCategory, serviceSort].join("|"),
+  );
+  const barberPaging = usePagination(
+    filteredBarbers,
+    6,
+    [barberQuery, barberSort].join("|"),
+  );
+  // Đổi trang thì cuộn về đầu danh sách để người dùng không phải tự cuộn tìm
+  const scrollToRef = (ref: React.RefObject<HTMLDivElement | null>) =>
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const resetServiceFilters = () => {
+    setServiceQuery("");
+    setServiceCategory("all");
+    setServiceSort("popular");
+  };
+
   // Không tự chọn dịch vụ: khách phải tự chọn, nút "Tiếp tục" sẽ bị disable cho tới khi chọn ít nhất 1
-  // Mặc định chọn thợ đầu tiên khi dữ liệu về
-  useEffect(() => {
-    if (!selectedBarberId && barbers.length > 0)
-      setSelectedBarberId(barbers[0].id);
-  }, [barbers, selectedBarberId]);
+  // Không tự chọn thợ: khách tự bấm chọn, nút "Tiếp tục" bị khóa cho tới khi có thợ
 
   // Lịch làm việc của thợ + các khoảng giờ đã bận trong ngày
   const loadSchedule = useCallback(
@@ -318,8 +425,74 @@ function BookingContent() {
                 Đang tải dịch vụ...
               </p>
             )}
+
+            {/* Tìm kiếm & lọc dịch vụ */}
+            <div ref={servicesTopRef} className="scroll-mt-24 space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Input
+                    value={serviceQuery}
+                    onChange={(e) => setServiceQuery(e.target.value)}
+                    placeholder="Tìm theo tên dịch vụ..."
+                    className="h-9 pl-9 text-xs bg-slate-950 border-slate-800"
+                  />
+                </div>
+                <Select
+                  value={serviceSort}
+                  onValueChange={(v) => setServiceSort(v as ServiceSort)}
+                >
+                  <SelectTrigger className="h-9 w-full sm:w-[210px] text-xs bg-slate-950 border-slate-800">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="popular">Ưa chuộng trước</SelectItem>
+                    <SelectItem value="price-asc">Giá: thấp → cao</SelectItem>
+                    <SelectItem value="price-desc">Giá: cao → thấp</SelectItem>
+                    <SelectItem value="duration">
+                      Thời lượng: ngắn → dài
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SERVICE_FILTERS.map((f) => {
+                  const active = serviceCategory === f.value;
+                  return (
+                    <button
+                      key={f.value}
+                      type="button"
+                      onClick={() => setServiceCategory(f.value)}
+                      className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                        active
+                          ? "bg-amber-500 border-amber-400 text-neutral-950 font-semibold"
+                          : "bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {!servicesLoading && filteredServices.length === 0 && (
+              <div className="text-center py-8 space-y-2">
+                <p className="text-xs text-slate-500">
+                  Không tìm thấy dịch vụ phù hợp.
+                </p>
+                <button
+                  type="button"
+                  onClick={resetServiceFilters}
+                  className="text-xs text-gold underline underline-offset-4"
+                >
+                  Xóa bộ lọc
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {services.map((srv) => {
+              {servicePaging.pageItems.map((srv) => {
                 const isSelected = selectedServiceIds.includes(srv.id);
                 return (
                   <div
@@ -378,6 +551,16 @@ function BookingContent() {
               })}
             </div>
 
+            <Pagination
+              page={servicePaging.page}
+              totalPages={servicePaging.totalPages}
+              onPageChange={(p) => {
+                servicePaging.setPage(p);
+                scrollToRef(servicesTopRef);
+              }}
+              className="pt-4"
+            />
+
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               <p className="text-xs text-slate-400">
                 Đã chọn{" "}
@@ -424,15 +607,73 @@ function BookingContent() {
                 Đang tải danh sách thợ...
               </p>
             )}
+
+            {/* Tìm kiếm & sắp xếp thợ */}
+            <div
+              ref={barbersTopRef}
+              className="scroll-mt-24 flex flex-col sm:flex-row gap-3"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <Input
+                  value={barberQuery}
+                  onChange={(e) => setBarberQuery(e.target.value)}
+                  placeholder="Tìm theo tên hoặc chuyên môn..."
+                  className="h-9 pl-9 text-xs bg-slate-950 border-slate-800"
+                />
+              </div>
+              <Select
+                value={barberSort}
+                onValueChange={(v) => setBarberSort(v as BarberSort)}
+              >
+                <SelectTrigger className="h-9 w-full sm:w-[210px] text-xs bg-slate-950 border-slate-800">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="rating">Đánh giá cao nhất</SelectItem>
+                  <SelectItem value="reviews">
+                    Nhiều lượt đánh giá nhất
+                  </SelectItem>
+                  <SelectItem value="name">Tên A → Z</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {!barbersLoading && filteredBarbers.length === 0 && (
+              <div className="text-center py-8 space-y-2">
+                <p className="text-xs text-slate-500">
+                  Không tìm thấy thợ phù hợp.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setBarberQuery("")}
+                  className="text-xs text-gold underline underline-offset-4"
+                >
+                  Xóa tìm kiếm
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {barbers.map((b) => {
+              {barberPaging.pageItems.map((b) => {
                 const isSelected = selectedBarber?.id === b.id;
                 return (
                   <div
                     key={b.id}
+                    role="radio"
+                    aria-checked={isSelected}
+                    tabIndex={0}
                     onClick={() => {
-                      setSelectedBarberId(b.id);
+                      // Bấm lại thợ đang chọn sẽ bỏ chọn
+                      setSelectedBarberId(isSelected ? "" : b.id);
                       setSelectedTime("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === " " || e.key === "Enter") {
+                        e.preventDefault();
+                        setSelectedBarberId(isSelected ? "" : b.id);
+                        setSelectedTime("");
+                      }
                     }}
                     className={`p-5 rounded-xl border text-center cursor-pointer transition-all duration-200 ${
                       isSelected
@@ -452,6 +693,16 @@ function BookingContent() {
                 );
               })}
             </div>
+
+            <Pagination
+              page={barberPaging.page}
+              totalPages={barberPaging.totalPages}
+              onPageChange={(p) => {
+                barberPaging.setPage(p);
+                scrollToRef(barbersTopRef);
+              }}
+              className="pt-4"
+            />
 
             <div className="flex justify-between pt-2">
               <Button
