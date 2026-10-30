@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
-import { format } from "date-fns";
+import React, { useState, useMemo, useCallback, useRef } from "react";
+import { format, subDays } from "date-fns";
 import { toast } from "sonner";
 import {
   BarChart3,
@@ -74,8 +74,32 @@ import {
 import { validate, type FieldErrors } from "@/lib/validation";
 import { reportError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { Pagination, usePagination } from "@/components/Pagination";
+import { FadeUp } from "@/components/FadeUp";
 
 type AdminTab = "analytics" | "bookings" | "barbers" | "services" | "customers";
+
+type RevPeriod = "today" | "7d" | "30d" | "all";
+type BarberSortKey = "revenue" | "appointments" | "name";
+type ServiceSortKey = "revenue" | "count" | "name";
+
+const PERIOD_OPTIONS: { value: RevPeriod; label: string }[] = [
+  { value: "today", label: "Hôm nay" },
+  { value: "7d", label: "7 ngày qua" },
+  { value: "30d", label: "30 ngày qua" },
+  { value: "all", label: "Toàn bộ" },
+];
+
+/** Chuẩn hóa để tìm kiếm không phân biệt hoa thường và dấu tiếng Việt */
+function normalizeSearch(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .toLowerCase()
+    .trim();
+}
 
 export default function AdminDashboardPage() {
   return (
@@ -109,7 +133,7 @@ function DashboardContent() {
   // Bộ lọc lịch hẹn
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [barberFilter, setBarberFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Modal sửa lịch
@@ -168,21 +192,42 @@ function DashboardContent() {
   };
 
   // THỐNG KÊ CHI TIẾT DOANH THU & HOẠT ĐỘNG
+  // Bộ lọc báo cáo: khoảng thời gian, tìm kiếm và sắp xếp cho từng danh sách
+  const [revPeriod, setRevPeriod] = useState<RevPeriod>("all");
+  const [barberQuery, setBarberQuery] = useState("");
+  const [barberSort, setBarberSort] = useState<BarberSortKey>("revenue");
+  const [serviceQuery, setServiceQuery] = useState("");
+  const [serviceSort, setServiceSort] = useState<ServiceSortKey>("revenue");
+
   const analyticsData = useMemo(() => {
     const todayStr = format(new Date(), "yyyy-MM-dd");
     const todayBookings = bookings.filter((b) => b.date === todayStr);
 
-    const nonCancelled = bookings.filter((b) => b.status !== "cancelled");
+    // Chỉ tính các lượt đặt trong khoảng thời gian đã chọn
+    const fromStr =
+      revPeriod === "all"
+        ? null
+        : revPeriod === "today"
+          ? todayStr
+          : format(
+              subDays(new Date(), revPeriod === "7d" ? 6 : 29),
+              "yyyy-MM-dd",
+            );
+    const scoped = fromStr
+      ? bookings.filter((b) => b.date >= fromStr && b.date <= todayStr)
+      : bookings;
+
+    const nonCancelled = scoped.filter((b) => b.status !== "cancelled");
     const totalRev = nonCancelled.reduce((acc, b) => acc + b.price, 0);
 
     const todayRev = todayBookings
       .filter((b) => b.status !== "cancelled")
       .reduce((acc, b) => acc + b.price, 0);
 
-    const completedBookings = bookings.filter((b) => b.status === "completed");
+    const completedBookings = scoped.filter((b) => b.status === "completed");
     const completionRate =
-      bookings.length > 0
-        ? Math.round((completedBookings.length / bookings.length) * 100)
+      scoped.length > 0
+        ? Math.round((completedBookings.length / scoped.length) * 100)
         : 0;
 
     const barberStats = barbers.map((barber) => {
@@ -221,7 +266,7 @@ function DashboardContent() {
       todayRev,
       totalRev,
       todayBookingsCount: todayBookings.length,
-      totalBookingsCount: bookings.length,
+      totalBookingsCount: scoped.length,
       completionRate,
       barberStats,
       serviceStats,
@@ -230,7 +275,46 @@ function DashboardContent() {
           ? Math.round(totalRev / nonCancelled.length)
           : 0,
     };
-  }, [bookings, barbers, services]);
+  }, [bookings, barbers, services, revPeriod]);
+
+  // Lọc + sắp xếp theo tìm kiếm, sau đó chia trang
+  const barberRows = useMemo(() => {
+    const q = normalizeSearch(barberQuery);
+    const rows = analyticsData.barberStats.filter(
+      (r) => !q || normalizeSearch(r.barber.name).includes(q),
+    );
+    return rows.sort((a, b) => {
+      if (barberSort === "name")
+        return a.barber.name.localeCompare(b.barber.name, "vi");
+      if (barberSort === "appointments")
+        return b.totalAppointments - a.totalAppointments;
+      return b.revenue - a.revenue;
+    });
+  }, [analyticsData, barberQuery, barberSort]);
+
+  const serviceRows = useMemo(() => {
+    const q = normalizeSearch(serviceQuery);
+    const rows = analyticsData.serviceStats.filter(
+      (r) => !q || normalizeSearch(r.service.name).includes(q),
+    );
+    return rows.sort((a, b) => {
+      if (serviceSort === "name")
+        return a.service.name.localeCompare(b.service.name, "vi");
+      if (serviceSort === "count") return b.count - a.count;
+      return b.revenue - a.revenue;
+    });
+  }, [analyticsData, serviceQuery, serviceSort]);
+
+  const barberPaging = usePagination(
+    barberRows,
+    5,
+    `${revPeriod}|${barberQuery}|${barberSort}`,
+  );
+  const servicePaging = usePagination(
+    serviceRows,
+    8,
+    `${revPeriod}|${serviceQuery}|${serviceSort}`,
+  );
 
   // Lọc danh sách lịch hẹn
   const filteredBookings = useMemo(() => {
@@ -239,16 +323,72 @@ function DashboardContent() {
       if (barberFilter !== "all" && b.barberId !== barberFilter) return false;
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = normalizeSearch(searchQuery);
         return (
-          b.customerName.toLowerCase().includes(q) ||
-          b.customerPhone.includes(q) ||
-          b.customerEmail.toLowerCase().includes(q)
+          normalizeSearch(b.customerName).includes(q) ||
+          b.customerPhone.includes(searchQuery.trim()) ||
+          normalizeSearch(b.customerEmail).includes(q)
         );
       }
       return true;
     });
   }, [bookings, dateFilter, barberFilter, statusFilter, searchQuery]);
+
+  const bookingListTopRef = useRef<HTMLDivElement>(null);
+  const bookingPaging = usePagination(
+    filteredBookings,
+    8,
+    `${dateFilter}|${barberFilter}|${statusFilter}|${searchQuery}`,
+  );
+  const scrollToBookingTop = () =>
+    bookingListTopRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+
+  // Tab thợ: tìm kiếm theo tên + lọc theo trạng thái khóa
+  const [barberTabQuery, setBarberTabQuery] = useState("");
+  const [barberTabStatus, setBarberTabStatus] = useState<
+    "all" | "active" | "locked"
+  >("all");
+  const barberTabRows = useMemo(() => {
+    const q = normalizeSearch(barberTabQuery);
+    return barbers.filter((b) => {
+      if (barberTabStatus === "active" && b.isLocked) return false;
+      if (barberTabStatus === "locked" && !b.isLocked) return false;
+      return (
+        !q ||
+        normalizeSearch(b.name).includes(q) ||
+        b.phone.includes(barberTabQuery.trim())
+      );
+    });
+  }, [barbers, barberTabQuery, barberTabStatus]);
+  const barberTabTopRef = useRef<HTMLDivElement>(null);
+  const barberTabPaging = usePagination(
+    barberTabRows,
+    6,
+    `${barberTabQuery}|${barberTabStatus}`,
+  );
+
+  // Tab dịch vụ: tìm theo tên + lọc theo trạng thái hiển thị
+  const [svcTabQuery, setSvcTabQuery] = useState("");
+  const [svcTabStatus, setSvcTabStatus] = useState<"all" | "active" | "paused">(
+    "all",
+  );
+  const svcTabRows = useMemo(() => {
+    const q = normalizeSearch(svcTabQuery);
+    return services.filter((srv) => {
+      if (svcTabStatus === "active" && !srv.isActive) return false;
+      if (svcTabStatus === "paused" && srv.isActive) return false;
+      return !q || normalizeSearch(srv.name).includes(q);
+    });
+  }, [services, svcTabQuery, svcTabStatus]);
+  const svcTabTopRef = useRef<HTMLDivElement>(null);
+  const svcTabPaging = usePagination(
+    svcTabRows,
+    6,
+    `${svcTabQuery}|${svcTabStatus}`,
+  );
 
   // Danh sách khách hàng kèm thống kê (theo customerId)
   const customerList = useMemo(() => {
@@ -268,6 +408,32 @@ function DashboardContent() {
       };
     });
   }, [users, bookings]);
+
+  // Tab khách hàng: tìm theo tên, email, SĐT + lọc theo trạng thái khóa
+  const [custTabQuery, setCustTabQuery] = useState("");
+  const [custTabStatus, setCustTabStatus] = useState<
+    "all" | "active" | "locked"
+  >("all");
+  const custTabRows = useMemo(() => {
+    const q = normalizeSearch(custTabQuery);
+    const raw = custTabQuery.trim();
+    return customerList.filter((c) => {
+      if (custTabStatus === "active" && c.isLocked) return false;
+      if (custTabStatus === "locked" && !c.isLocked) return false;
+      if (!q) return true;
+      return (
+        normalizeSearch(c.name).includes(q) ||
+        normalizeSearch(c.email).includes(q) ||
+        c.phone.includes(raw)
+      );
+    });
+  }, [customerList, custTabQuery, custTabStatus]);
+  const custTabTopRef = useRef<HTMLDivElement>(null);
+  const custTabPaging = usePagination(
+    custTabRows,
+    8,
+    `${custTabQuery}|${custTabStatus}`,
+  );
 
   // === Lịch hẹn ===
   const handleUpdateStatus = (id: string, newStatus: BookingStatus) =>
@@ -602,7 +768,32 @@ function DashboardContent() {
         {/* TAB 1: THỐNG KÊ CHI TIẾT DOANH THU                       */}
         {/* ======================================================== */}
         {activeTab === "analytics" && (
-          <div className="space-y-6">
+          <FadeUp key="analytics" className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-slate-400">
+                Số liệu theo khoảng thời gian đã chọn
+              </p>
+              <Select
+                value={revPeriod}
+                onValueChange={(v) => setRevPeriod(v as RevPeriod)}
+              >
+                <SelectTrigger className="h-8 text-xs bg-slate-950 border-slate-800 w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PERIOD_OPTIONS.map((p) => (
+                    <SelectItem
+                      key={p.value}
+                      value={p.value}
+                      className="text-xs"
+                    >
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
                 <span className="text-xs text-slate-400 font-medium block">
@@ -618,7 +809,8 @@ function DashboardContent() {
 
               <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-md">
                 <span className="text-xs text-slate-400 font-medium block">
-                  Tổng doanh thu hệ thống
+                  Doanh thu (
+                  {PERIOD_OPTIONS.find((p) => p.value === revPeriod)?.label})
                 </span>
                 <span className="text-2xl font-bold text-gold font-mono mt-1 block">
                   {formatVND(analyticsData.totalRev)}
@@ -662,8 +854,39 @@ function DashboardContent() {
                 </h3>
               </div>
 
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Input
+                    value={barberQuery}
+                    onChange={(e) => setBarberQuery(e.target.value)}
+                    placeholder="Tìm theo tên thợ..."
+                    className="pl-9 h-9 text-xs bg-slate-950 border-slate-800"
+                  />
+                </div>
+                <Select
+                  value={barberSort}
+                  onValueChange={(v) => setBarberSort(v as BarberSortKey)}
+                >
+                  <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800 sm:w-[190px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="revenue" className="text-xs">
+                      Doanh thu cao nhất
+                    </SelectItem>
+                    <SelectItem value="appointments" className="text-xs">
+                      Nhiều ca nhất
+                    </SelectItem>
+                    <SelectItem value="name" className="text-xs">
+                      Tên A → Z
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-4">
-                {analyticsData.barberStats.map((item) => (
+                {barberPaging.pageItems.map((item) => (
                   <div
                     key={item.barber.id}
                     className="space-y-1.5 p-3 rounded-xl bg-slate-950 border border-slate-800/80"
@@ -710,6 +933,17 @@ function DashboardContent() {
                   </div>
                 ))}
               </div>
+              {barberRows.length === 0 && (
+                <p className="text-xs text-slate-500 text-center py-6">
+                  Không có thợ nào khớp tìm kiếm.
+                </p>
+              )}
+              <Pagination
+                page={barberPaging.page}
+                totalPages={barberPaging.totalPages}
+                onPageChange={barberPaging.setPage}
+                className="pt-2"
+              />
             </div>
 
             {/* Chi tiết Doanh Thu Theo Từng Dịch Vụ */}
@@ -721,8 +955,39 @@ function DashboardContent() {
                 </h3>
               </div>
 
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Input
+                    value={serviceQuery}
+                    onChange={(e) => setServiceQuery(e.target.value)}
+                    placeholder="Tìm theo tên dịch vụ..."
+                    className="pl-9 h-9 text-xs bg-slate-950 border-slate-800"
+                  />
+                </div>
+                <Select
+                  value={serviceSort}
+                  onValueChange={(v) => setServiceSort(v as ServiceSortKey)}
+                >
+                  <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800 sm:w-[190px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="revenue" className="text-xs">
+                      Doanh thu cao nhất
+                    </SelectItem>
+                    <SelectItem value="count" className="text-xs">
+                      Được chọn nhiều nhất
+                    </SelectItem>
+                    <SelectItem value="name" className="text-xs">
+                      Tên A → Z
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {analyticsData.serviceStats.map((item) => (
+                {servicePaging.pageItems.map((item) => (
                   <div
                     key={item.service.id}
                     className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between"
@@ -757,16 +1022,30 @@ function DashboardContent() {
                   </div>
                 ))}
               </div>
+              {serviceRows.length === 0 && (
+                <p className="text-xs text-slate-500 text-center py-6">
+                  Không có dịch vụ nào khớp tìm kiếm.
+                </p>
+              )}
+              <Pagination
+                page={servicePaging.page}
+                totalPages={servicePaging.totalPages}
+                onPageChange={servicePaging.setPage}
+                className="pt-2"
+              />
             </div>
-          </div>
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 2: QUẢN LÝ TOÀN BỘ LỊCH HẸN                          */}
         {/* ======================================================== */}
         {activeTab === "bookings" && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <FadeUp key="bookings" className="space-y-4">
+            <div
+              ref={bookingListTopRef}
+              className="scroll-mt-24 p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3"
+            >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
@@ -801,6 +1080,13 @@ function DashboardContent() {
                   >
                     Hôm nay ({formatDateVN(new Date())})
                   </Button>
+                  <Input
+                    type="date"
+                    aria-label="Chọn ngày cụ thể"
+                    value={dateFilter === "all" ? "" : dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value || "all")}
+                    className="h-8 w-[150px] text-xs bg-slate-950 border-slate-800"
+                  />
                 </div>
               </div>
 
@@ -875,134 +1161,142 @@ function DashboardContent() {
                   Không tìm thấy lịch hẹn nào phù hợp với bộ lọc
                 </div>
               ) : (
-                filteredBookings.map((b) => {
+                bookingPaging.pageItems.map((b, i) => {
                   const barber = barbers.find((brb) => brb.id === b.barberId);
 
                   return (
-                    <div
-                      key={b.id}
-                      className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white text-sm">
-                            {b.customerName}
-                          </span>
-                          <span className="text-xs text-slate-400 font-mono">
-                            ({b.customerPhone})
-                          </span>
-                          <Badge
-                            variant={getStatusBadgeVariant(b.status)}
-                            className="text-[10px]"
-                          >
-                            {getStatusLabel(b.status)}
-                          </Badge>
+                    <FadeUp key={b.id} delay={i * 0.03}>
+                      <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-sm">
+                              {b.customerName}
+                            </span>
+                            <span className="text-xs text-slate-400 font-mono">
+                              ({b.customerPhone})
+                            </span>
+                            <Badge
+                              variant={getStatusBadgeVariant(b.status)}
+                              className="text-[10px]"
+                            >
+                              {getStatusLabel(b.status)}
+                            </Badge>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                            <span className="font-semibold text-slate-200">
+                              {b.services.length > 0
+                                ? b.services.map((s) => s.name).join(" + ")
+                                : b.serviceName}
+                            </span>
+                            <span className="font-mono text-gold font-bold">
+                              {formatVND(b.price)}
+                            </span>
+                            <span className="flex items-center gap-1 text-gold font-mono font-medium">
+                              <Clock className="h-3.5 w-3.5" />
+                              {b.time}–{b.endTime} • Ngày {formatDateVN(b.date)}
+                            </span>
+                            <span>
+                              Thợ:{" "}
+                              <strong className="text-slate-300">
+                                {barber?.name}
+                              </strong>
+                            </span>
+                          </div>
+
+                          {b.notes && (
+                            <p className="text-[11px] text-slate-400 italic">
+                              Ghi chú: &ldquo;{b.notes}&rdquo;
+                            </p>
+                          )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-                          <span className="font-semibold text-slate-200">
-                            {b.services.length > 0
-                              ? b.services.map((s) => s.name).join(" + ")
-                              : b.serviceName}
-                          </span>
-                          <span className="font-mono text-gold font-bold">
-                            {formatVND(b.price)}
-                          </span>
-                          <span className="flex items-center gap-1 text-gold font-mono font-medium">
-                            <Clock className="h-3.5 w-3.5" />
-                            {b.time}–{b.endTime} • Ngày {formatDateVN(b.date)}
-                          </span>
-                          <span>
-                            Thợ:{" "}
-                            <strong className="text-slate-300">
-                              {barber?.name}
-                            </strong>
-                          </span>
+                        {/* Các nút hành động quản trị */}
+                        <div className="flex items-center gap-1.5 self-end md:self-center">
+                          {b.status === "pending" && (
+                            <Button
+                              size="sm"
+                              variant="emerald"
+                              onClick={() =>
+                                handleUpdateStatus(b.id, "confirmed")
+                              }
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Check className="h-3 w-3 mr-1" /> Duyệt
+                            </Button>
+                          )}
+
+                          {b.status === "confirmed" && (
+                            <Button
+                              size="sm"
+                              variant="gold"
+                              onClick={() =>
+                                handleUpdateStatus(b.id, "in_progress")
+                              }
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Play className="h-3 w-3 mr-1" /> Phục vụ
+                            </Button>
+                          )}
+
+                          {b.status === "in_progress" && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                handleUpdateStatus(b.id, "completed")
+                              }
+                              className="h-7 px-2 text-xs bg-blue-900/40 text-info"
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" /> Xong
+                            </Button>
+                          )}
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditingBooking(b);
+                              setIsEditModalOpen(true);
+                            }}
+                            className="h-7 px-2 text-xs border-slate-700 hover:border-amber-400"
+                          >
+                            <Edit2 className="h-3 w-3 mr-1" /> Sửa
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteBooking(b.id)}
+                            className="h-7 w-7 p-0 text-slate-500 hover:text-bad"
+                            title="Xóa lịch hẹn"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-
-                        {b.notes && (
-                          <p className="text-[11px] text-slate-400 italic">
-                            Ghi chú: &ldquo;{b.notes}&rdquo;
-                          </p>
-                        )}
                       </div>
-
-                      {/* Các nút hành động quản trị */}
-                      <div className="flex items-center gap-1.5 self-end md:self-center">
-                        {b.status === "pending" && (
-                          <Button
-                            size="sm"
-                            variant="emerald"
-                            onClick={() =>
-                              handleUpdateStatus(b.id, "confirmed")
-                            }
-                            className="h-7 px-2 text-xs"
-                          >
-                            <Check className="h-3 w-3 mr-1" /> Duyệt
-                          </Button>
-                        )}
-
-                        {b.status === "confirmed" && (
-                          <Button
-                            size="sm"
-                            variant="gold"
-                            onClick={() =>
-                              handleUpdateStatus(b.id, "in_progress")
-                            }
-                            className="h-7 px-2 text-xs"
-                          >
-                            <Play className="h-3 w-3 mr-1" /> Phục vụ
-                          </Button>
-                        )}
-
-                        {b.status === "in_progress" && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() =>
-                              handleUpdateStatus(b.id, "completed")
-                            }
-                            className="h-7 px-2 text-xs bg-blue-900/40 text-info"
-                          >
-                            <CheckCircle className="h-3 w-3 mr-1" /> Xong
-                          </Button>
-                        )}
-
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setEditingBooking(b);
-                            setIsEditModalOpen(true);
-                          }}
-                          className="h-7 px-2 text-xs border-slate-700 hover:border-amber-400"
-                        >
-                          <Edit2 className="h-3 w-3 mr-1" /> Sửa
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleDeleteBooking(b.id)}
-                          className="h-7 w-7 p-0 text-slate-500 hover:text-bad"
-                          title="Xóa lịch hẹn"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
+                    </FadeUp>
                   );
                 })
               )}
             </div>
-          </div>
+            <Pagination
+              page={bookingPaging.page}
+              totalPages={bookingPaging.totalPages}
+              onPageChange={(p) => {
+                bookingPaging.setPage(p);
+                scrollToBookingTop();
+              }}
+              className="pt-2"
+            />
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 3: QUẢN LÝ ĐỘI NGŨ THỢ (THÊM / SỬA / KHÓA / XÓA)      */}
         {/* ======================================================== */}
         {activeTab === "barbers" && (
-          <div className="space-y-4">
+          <FadeUp key="barbers" className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
                 Quản lý hồ sơ, quyền hạn và trạng thái làm việc của các thợ cắt
@@ -1019,8 +1313,44 @@ function DashboardContent() {
               </Button>
             </div>
 
+            <div
+              ref={barberTabTopRef}
+              className="scroll-mt-24 flex flex-col sm:flex-row gap-2"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <Input
+                  value={barberTabQuery}
+                  onChange={(e) => setBarberTabQuery(e.target.value)}
+                  placeholder="Tìm theo tên hoặc số điện thoại thợ..."
+                  className="pl-9 h-9 text-xs bg-slate-950 border-slate-800"
+                />
+              </div>
+              <Select
+                value={barberTabStatus}
+                onValueChange={(v) =>
+                  setBarberTabStatus(v as "all" | "active" | "locked")
+                }
+              >
+                <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800 sm:w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">
+                    Tất cả trạng thái
+                  </SelectItem>
+                  <SelectItem value="active" className="text-xs text-ok">
+                    Đang hoạt động
+                  </SelectItem>
+                  <SelectItem value="locked" className="text-xs text-bad">
+                    Đã khóa
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {barbers.map((b) => {
+              {barberTabPaging.pageItems.map((b) => {
                 const bBookings = bookings.filter(
                   (bk) => bk.barberId === b.id && bk.status !== "cancelled",
                 );
@@ -1136,14 +1466,31 @@ function DashboardContent() {
                 );
               })}
             </div>
-          </div>
+            {barberTabRows.length === 0 && (
+              <div className="p-8 rounded-xl bg-slate-950/60 border border-dashed border-slate-800 text-center text-xs text-slate-500">
+                Không tìm thấy thợ nào phù hợp với bộ lọc
+              </div>
+            )}
+            <Pagination
+              page={barberTabPaging.page}
+              totalPages={barberTabPaging.totalPages}
+              onPageChange={(p) => {
+                barberTabPaging.setPage(p);
+                barberTabTopRef.current?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }}
+              className="pt-2"
+            />
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 4: QUẢN LÝ DỊCH VỤ & BẢNG GIÁ (THÊM / SỬA / KHÓA / XÓA) */}
         {/* ======================================================== */}
         {activeTab === "services" && (
-          <div className="space-y-4">
+          <FadeUp key="services" className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
                 Toàn bộ danh mục dịch vụ phục vụ khách hàng của salon
@@ -1159,8 +1506,44 @@ function DashboardContent() {
               </Button>
             </div>
 
+            <div
+              ref={svcTabTopRef}
+              className="scroll-mt-24 flex flex-col sm:flex-row gap-2"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <Input
+                  value={svcTabQuery}
+                  onChange={(e) => setSvcTabQuery(e.target.value)}
+                  placeholder="Tìm theo tên dịch vụ..."
+                  className="pl-9 h-9 text-xs bg-slate-950 border-slate-800"
+                />
+              </div>
+              <Select
+                value={svcTabStatus}
+                onValueChange={(v) =>
+                  setSvcTabStatus(v as "all" | "active" | "paused")
+                }
+              >
+                <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800 sm:w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">
+                    Tất cả trạng thái
+                  </SelectItem>
+                  <SelectItem value="active" className="text-xs text-ok">
+                    Đang phục vụ
+                  </SelectItem>
+                  <SelectItem value="paused" className="text-xs text-bad">
+                    Tạm ngưng
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {services.map((srv) => (
+              {svcTabPaging.pageItems.map((srv) => (
                 <div
                   key={srv.id}
                   className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
@@ -1251,14 +1634,31 @@ function DashboardContent() {
                 </div>
               ))}
             </div>
-          </div>
+            {svcTabRows.length === 0 && (
+              <div className="p-8 rounded-xl bg-slate-950/60 border border-dashed border-slate-800 text-center text-xs text-slate-500">
+                Không tìm thấy dịch vụ nào phù hợp với bộ lọc
+              </div>
+            )}
+            <Pagination
+              page={svcTabPaging.page}
+              totalPages={svcTabPaging.totalPages}
+              onPageChange={(p) => {
+                svcTabPaging.setPage(p);
+                svcTabTopRef.current?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }}
+              className="pt-2"
+            />
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 5: QUẢN LÝ KHÁCH HÀNG (THÊM / SỬA / KHÓA / XÓA)      */}
         {/* ======================================================== */}
         {activeTab === "customers" && (
-          <div className="space-y-4">
+          <FadeUp key="customers" className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
                 Danh sách khách hàng đã đăng ký tài khoản trên hệ thống
@@ -1274,8 +1674,44 @@ function DashboardContent() {
               </Button>
             </div>
 
+            <div
+              ref={custTabTopRef}
+              className="scroll-mt-24 flex flex-col sm:flex-row gap-2"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <Input
+                  value={custTabQuery}
+                  onChange={(e) => setCustTabQuery(e.target.value)}
+                  placeholder="Tìm theo tên, email hoặc số điện thoại..."
+                  className="pl-9 h-9 text-xs bg-slate-950 border-slate-800"
+                />
+              </div>
+              <Select
+                value={custTabStatus}
+                onValueChange={(v) =>
+                  setCustTabStatus(v as "all" | "active" | "locked")
+                }
+              >
+                <SelectTrigger className="h-9 text-xs bg-slate-950 border-slate-800 sm:w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">
+                    Tất cả trạng thái
+                  </SelectItem>
+                  <SelectItem value="active" className="text-xs text-ok">
+                    Đang hoạt động
+                  </SelectItem>
+                  <SelectItem value="locked" className="text-xs text-bad">
+                    Đã khóa
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-3">
-              {customerList.map((cust) => (
+              {custTabPaging.pageItems.map((cust) => (
                 <div
                   key={cust.id}
                   className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs ${
@@ -1386,7 +1822,24 @@ function DashboardContent() {
                 </div>
               ))}
             </div>
-          </div>
+            {custTabRows.length === 0 && (
+              <div className="p-8 rounded-xl bg-slate-950/60 border border-dashed border-slate-800 text-center text-xs text-slate-500">
+                Không tìm thấy khách hàng nào phù hợp với bộ lọc
+              </div>
+            )}
+            <Pagination
+              page={custTabPaging.page}
+              totalPages={custTabPaging.totalPages}
+              onPageChange={(p) => {
+                custTabPaging.setPage(p);
+                custTabTopRef.current?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }}
+              className="pt-2"
+            />
+          </FadeUp>
         )}
       </main>
 

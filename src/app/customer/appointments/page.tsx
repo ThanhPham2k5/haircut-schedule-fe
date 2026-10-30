@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
+import { FadeUp } from "@/components/FadeUp";
+import { Pagination, usePagination } from "@/components/Pagination";
 import Link from "next/link";
 import { isToday, isFuture, isPast, parseISO } from "date-fns";
 import { toast } from "sonner";
@@ -11,7 +13,9 @@ import {
   Plus,
   Filter,
   RotateCcw,
+  Search,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -32,6 +36,15 @@ import { reportError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAuth } from "@/providers/auth-provider";
 import { useConfirm } from "@/components/useConfirm";
+
+/** Viết thường, bỏ dấu tiếng Việt để tìm "cat toc" vẫn khớp "Cắt tóc" */
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d");
+}
 
 export default function CustomerAppointmentsPage() {
   return (
@@ -61,6 +74,7 @@ function AppointmentsContent() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [barberFilter, setBarberFilter] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const { ask, confirmDialog } = useConfirm();
 
@@ -71,7 +85,24 @@ function AppointmentsContent() {
 
   // RLS đã chỉ trả về lịch của chính khách này; ở đây chỉ áp dụng bộ lọc hiển thị
   const filteredBookings = useMemo(() => {
+    const q = normalizeText(searchQuery.trim());
     return allBookings.filter((b) => {
+      if (q) {
+        const haystack = normalizeText(
+          [
+            b.serviceName,
+            ...(b.services ?? []).map((s) => s.name),
+            barberById.get(b.barberId)?.name ?? "",
+            b.notes ?? "",
+            getStatusLabel(b.status),
+            shortBookingCode(b.id),
+            b.date,
+            formatDateVN(b.date),
+            b.time,
+          ].join(" "),
+        );
+        if (!haystack.includes(q)) return false;
+      }
       if (statusFilter !== "all" && b.status !== statusFilter) return false;
       if (barberFilter !== "all" && b.barberId !== barberFilter) return false;
 
@@ -92,7 +123,22 @@ function AppointmentsContent() {
       }
       return true;
     });
-  }, [allBookings, statusFilter, barberFilter, timeFilter]);
+  }, [
+    allBookings,
+    barberById,
+    searchQuery,
+    statusFilter,
+    barberFilter,
+    timeFilter,
+  ]);
+
+  // Phân trang: 10 lịch mỗi trang, quay về trang 1 khi đổi bộ lọc hoặc tìm kiếm
+  const listTopRef = useRef<HTMLDivElement>(null);
+  const paging = usePagination(
+    filteredBookings,
+    10,
+    [searchQuery, statusFilter, barberFilter, timeFilter].join("|"),
+  );
 
   const handleCancelBooking = (bookingId: string) => {
     ask({
@@ -125,6 +171,7 @@ function AppointmentsContent() {
     setStatusFilter("all");
     setBarberFilter("all");
     setTimeFilter("all");
+    setSearchQuery("");
     toast.info("Đã đặt lại các bộ lọc");
   };
 
@@ -186,7 +233,8 @@ function AppointmentsContent() {
               Bộ Lọc Lịch Hẹn
             </span>
 
-            {(statusFilter !== "all" ||
+            {(searchQuery !== "" ||
+              statusFilter !== "all" ||
               barberFilter !== "all" ||
               timeFilter !== "all") && (
               <button
@@ -198,6 +246,17 @@ function AppointmentsContent() {
                 Xóa bộ lọc
               </button>
             )}
+          </div>
+
+          {/* Ô tìm kiếm: nằm trên cùng, tìm theo dịch vụ, thợ, ghi chú, mã, ngày, giờ, trạng thái */}
+          <div ref={listTopRef} className="scroll-mt-24 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm theo dịch vụ, thợ, mã lịch hẹn, ngày, ghi chú..."
+              className="h-9 pl-9 text-xs bg-slate-950 border-slate-800"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -287,83 +346,98 @@ function AppointmentsContent() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredBookings.map((b) => {
+            {paging.pageItems.map((b, i) => {
               const barber = barberById.get(b.barberId);
               const canCancel =
                 b.status === "pending" || b.status === "confirmed";
 
               return (
-                <div
-                  key={b.id}
-                  className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-white text-sm">
-                        {b.serviceName}
-                      </span>
-                      <Badge
-                        variant={getStatusBadgeVariant(b.status)}
-                        className="text-[10px]"
-                      >
-                        {getStatusLabel(b.status)}
-                      </Badge>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
-                      <span className="flex items-center gap-1 text-gold font-mono font-medium">
-                        <Clock className="h-3.5 w-3.5" />
-                        {b.time} • Ngày {formatDateVN(b.date)}
-                      </span>
-
-                      <span className="flex items-center gap-1.5">
-                        <UserAvatar
-                          name={barber?.name}
-                          role="barber"
-                          size="sm"
-                        />
-                        <span>
-                          Thợ:{" "}
-                          <strong className="text-slate-300 font-medium">
-                            {barber?.name ?? "—"}
-                          </strong>
+                <FadeUp key={b.id} delay={i * 0.03}>
+                  <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-white text-sm">
+                          {b.serviceName}
                         </span>
-                      </span>
+                        <Badge
+                          variant={getStatusBadgeVariant(b.status)}
+                          className="text-[10px]"
+                        >
+                          {getStatusLabel(b.status)}
+                        </Badge>
+                      </div>
 
-                      <span className="font-mono text-ok font-semibold">
-                        {formatVND(b.price)}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
+                        <span className="flex items-center gap-1 text-gold font-mono font-medium">
+                          <Clock className="h-3.5 w-3.5" />
+                          {b.time} • Ngày {formatDateVN(b.date)}
+                        </span>
+
+                        <span className="flex items-center gap-1.5">
+                          <UserAvatar
+                            name={barber?.name}
+                            role="barber"
+                            size="sm"
+                          />
+                          <span>
+                            Thợ:{" "}
+                            <strong className="text-slate-300 font-medium">
+                              {barber?.name ?? "—"}
+                            </strong>
+                          </span>
+                        </span>
+
+                        <span className="font-mono text-ok font-semibold">
+                          {formatVND(b.price)}
+                        </span>
+                      </div>
+
+                      {b.notes && (
+                        <p className="text-[11px] text-slate-400 italic">
+                          Ghi chú: &ldquo;{b.notes}&rdquo;
+                        </p>
+                      )}
+
+                      <p className="text-[10px] text-slate-500 font-mono">
+                        Mã lịch hẹn: {shortBookingCode(b.id)}
+                      </p>
                     </div>
 
-                    {b.notes && (
-                      <p className="text-[11px] text-slate-400 italic">
-                        Ghi chú: &ldquo;{b.notes}&rdquo;
-                      </p>
-                    )}
-
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      Mã lịch hẹn: {shortBookingCode(b.id)}
-                    </p>
+                    <div>
+                      {canCancel && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={cancellingId === b.id}
+                          onClick={() => handleCancelBooking(b.id)}
+                          className="h-8 px-3 text-xs border-slate-700 hover:text-bad hover:border-rose-500/50"
+                        >
+                          <XCircle className="h-3.5 w-3.5 mr-1" />
+                          {cancellingId === b.id
+                            ? "Đang hủy..."
+                            : "Hủy lịch hẹn"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-
-                  <div>
-                    {canCancel && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={cancellingId === b.id}
-                        onClick={() => handleCancelBooking(b.id)}
-                        className="h-8 px-3 text-xs border-slate-700 hover:text-bad hover:border-rose-500/50"
-                      >
-                        <XCircle className="h-3.5 w-3.5 mr-1" />
-                        {cancellingId === b.id ? "Đang hủy..." : "Hủy lịch hẹn"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                </FadeUp>
               );
             })}
           </div>
+        )}
+        {filteredBookings.length > 0 && (
+          <Pagination
+            page={paging.page}
+            totalPages={paging.totalPages}
+            onPageChange={(p) => {
+              paging.setPage(p);
+              listTopRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              });
+            }}
+            className="pt-2"
+          />
         )}
       </main>
 
