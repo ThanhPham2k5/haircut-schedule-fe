@@ -7,6 +7,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { FadeUp } from "@/components/FadeUp";
 import { Pagination, usePagination } from "@/components/Pagination";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -410,7 +411,7 @@ function BookingContent() {
 
         {/* BƯỚC 1: CHỌN DỊCH VỤ */}
         {step === 1 && (
-          <div className="space-y-6">
+          <FadeUp key="step-1" className="space-y-6">
             <div className="text-center space-y-1">
               <h1 className="text-2xl font-bold text-white">
                 Bước 1: Chọn Dịch Vụ Cắt Tóc
@@ -587,12 +588,12 @@ function BookingContent() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </FadeUp>
         )}
 
         {/* BƯỚC 2: CHỌN THỢ CẮT TÓC */}
         {step === 2 && (
-          <div className="space-y-6">
+          <FadeUp key="step-2" className="space-y-6">
             <div className="text-center space-y-1">
               <h1 className="text-2xl font-bold text-white">
                 Bước 2: Chọn Thợ Cắt Tóc
@@ -726,12 +727,12 @@ function BookingContent() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </FadeUp>
         )}
 
         {/* BƯỚC 3: CHỌN NGÀY & KHUNG GIỜ (ĐỊNH DẠNG dd/MM/yyyy) */}
         {step === 3 && (
-          <div className="space-y-6">
+          <FadeUp key="step-3" className="space-y-6">
             <div className="text-center space-y-1">
               <h1 className="text-2xl font-bold text-white">
                 Bước 3: Chọn Ngày &amp; Khung Giờ
@@ -890,12 +891,12 @@ function BookingContent() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </FadeUp>
         )}
 
         {/* BƯỚC 4: THÔNG TIN KHÁCH HÀNG & XÁC NHẬN */}
         {step === 4 && (
-          <div className="space-y-6">
+          <FadeUp key="step-4" className="space-y-6">
             <div className="text-center space-y-1">
               <h1 className="text-2xl font-bold text-white">
                 Bước 4: Thông Tin &amp; Xác Nhận
@@ -1032,7 +1033,7 @@ function BookingContent() {
                 Đổi giờ hoặc ngày
               </Button>
             </div>
-          </div>
+          </FadeUp>
         )}
 
         {/* BƯỚC 5: ĐẶT LỊCH THÀNH CÔNG */}

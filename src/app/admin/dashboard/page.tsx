@@ -75,6 +75,7 @@ import { validate, type FieldErrors } from "@/lib/validation";
 import { reportError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { Pagination, usePagination } from "@/components/Pagination";
+import { FadeUp } from "@/components/FadeUp";
 
 type AdminTab = "analytics" | "bookings" | "barbers" | "services" | "customers";
 
@@ -767,7 +768,7 @@ function DashboardContent() {
         {/* TAB 1: THỐNG KÊ CHI TIẾT DOANH THU                       */}
         {/* ======================================================== */}
         {activeTab === "analytics" && (
-          <div className="space-y-6">
+          <FadeUp key="analytics" className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-slate-400">
                 Số liệu theo khoảng thời gian đã chọn
@@ -1033,14 +1034,14 @@ function DashboardContent() {
                 className="pt-2"
               />
             </div>
-          </div>
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 2: QUẢN LÝ TOÀN BỘ LỊCH HẸN                          */}
         {/* ======================================================== */}
         {activeTab === "bookings" && (
-          <div className="space-y-4">
+          <FadeUp key="bookings" className="space-y-4">
             <div
               ref={bookingListTopRef}
               className="scroll-mt-24 p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3"
@@ -1160,122 +1161,121 @@ function DashboardContent() {
                   Không tìm thấy lịch hẹn nào phù hợp với bộ lọc
                 </div>
               ) : (
-                bookingPaging.pageItems.map((b) => {
+                bookingPaging.pageItems.map((b, i) => {
                   const barber = barbers.find((brb) => brb.id === b.barberId);
 
                   return (
-                    <div
-                      key={b.id}
-                      className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white text-sm">
-                            {b.customerName}
-                          </span>
-                          <span className="text-xs text-slate-400 font-mono">
-                            ({b.customerPhone})
-                          </span>
-                          <Badge
-                            variant={getStatusBadgeVariant(b.status)}
-                            className="text-[10px]"
-                          >
-                            {getStatusLabel(b.status)}
-                          </Badge>
+                    <FadeUp key={b.id} delay={i * 0.03}>
+                      <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-sm">
+                              {b.customerName}
+                            </span>
+                            <span className="text-xs text-slate-400 font-mono">
+                              ({b.customerPhone})
+                            </span>
+                            <Badge
+                              variant={getStatusBadgeVariant(b.status)}
+                              className="text-[10px]"
+                            >
+                              {getStatusLabel(b.status)}
+                            </Badge>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                            <span className="font-semibold text-slate-200">
+                              {b.services.length > 0
+                                ? b.services.map((s) => s.name).join(" + ")
+                                : b.serviceName}
+                            </span>
+                            <span className="font-mono text-gold font-bold">
+                              {formatVND(b.price)}
+                            </span>
+                            <span className="flex items-center gap-1 text-gold font-mono font-medium">
+                              <Clock className="h-3.5 w-3.5" />
+                              {b.time}–{b.endTime} • Ngày {formatDateVN(b.date)}
+                            </span>
+                            <span>
+                              Thợ:{" "}
+                              <strong className="text-slate-300">
+                                {barber?.name}
+                              </strong>
+                            </span>
+                          </div>
+
+                          {b.notes && (
+                            <p className="text-[11px] text-slate-400 italic">
+                              Ghi chú: &ldquo;{b.notes}&rdquo;
+                            </p>
+                          )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-                          <span className="font-semibold text-slate-200">
-                            {b.services.length > 0
-                              ? b.services.map((s) => s.name).join(" + ")
-                              : b.serviceName}
-                          </span>
-                          <span className="font-mono text-gold font-bold">
-                            {formatVND(b.price)}
-                          </span>
-                          <span className="flex items-center gap-1 text-gold font-mono font-medium">
-                            <Clock className="h-3.5 w-3.5" />
-                            {b.time}–{b.endTime} • Ngày {formatDateVN(b.date)}
-                          </span>
-                          <span>
-                            Thợ:{" "}
-                            <strong className="text-slate-300">
-                              {barber?.name}
-                            </strong>
-                          </span>
+                        {/* Các nút hành động quản trị */}
+                        <div className="flex items-center gap-1.5 self-end md:self-center">
+                          {b.status === "pending" && (
+                            <Button
+                              size="sm"
+                              variant="emerald"
+                              onClick={() =>
+                                handleUpdateStatus(b.id, "confirmed")
+                              }
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Check className="h-3 w-3 mr-1" /> Duyệt
+                            </Button>
+                          )}
+
+                          {b.status === "confirmed" && (
+                            <Button
+                              size="sm"
+                              variant="gold"
+                              onClick={() =>
+                                handleUpdateStatus(b.id, "in_progress")
+                              }
+                              className="h-7 px-2 text-xs"
+                            >
+                              <Play className="h-3 w-3 mr-1" /> Phục vụ
+                            </Button>
+                          )}
+
+                          {b.status === "in_progress" && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                handleUpdateStatus(b.id, "completed")
+                              }
+                              className="h-7 px-2 text-xs bg-blue-900/40 text-info"
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" /> Xong
+                            </Button>
+                          )}
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditingBooking(b);
+                              setIsEditModalOpen(true);
+                            }}
+                            className="h-7 px-2 text-xs border-slate-700 hover:border-amber-400"
+                          >
+                            <Edit2 className="h-3 w-3 mr-1" /> Sửa
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteBooking(b.id)}
+                            className="h-7 w-7 p-0 text-slate-500 hover:text-bad"
+                            title="Xóa lịch hẹn"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-
-                        {b.notes && (
-                          <p className="text-[11px] text-slate-400 italic">
-                            Ghi chú: &ldquo;{b.notes}&rdquo;
-                          </p>
-                        )}
                       </div>
-
-                      {/* Các nút hành động quản trị */}
-                      <div className="flex items-center gap-1.5 self-end md:self-center">
-                        {b.status === "pending" && (
-                          <Button
-                            size="sm"
-                            variant="emerald"
-                            onClick={() =>
-                              handleUpdateStatus(b.id, "confirmed")
-                            }
-                            className="h-7 px-2 text-xs"
-                          >
-                            <Check className="h-3 w-3 mr-1" /> Duyệt
-                          </Button>
-                        )}
-
-                        {b.status === "confirmed" && (
-                          <Button
-                            size="sm"
-                            variant="gold"
-                            onClick={() =>
-                              handleUpdateStatus(b.id, "in_progress")
-                            }
-                            className="h-7 px-2 text-xs"
-                          >
-                            <Play className="h-3 w-3 mr-1" /> Phục vụ
-                          </Button>
-                        )}
-
-                        {b.status === "in_progress" && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() =>
-                              handleUpdateStatus(b.id, "completed")
-                            }
-                            className="h-7 px-2 text-xs bg-blue-900/40 text-info"
-                          >
-                            <CheckCircle className="h-3 w-3 mr-1" /> Xong
-                          </Button>
-                        )}
-
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setEditingBooking(b);
-                            setIsEditModalOpen(true);
-                          }}
-                          className="h-7 px-2 text-xs border-slate-700 hover:border-amber-400"
-                        >
-                          <Edit2 className="h-3 w-3 mr-1" /> Sửa
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleDeleteBooking(b.id)}
-                          className="h-7 w-7 p-0 text-slate-500 hover:text-bad"
-                          title="Xóa lịch hẹn"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
+                    </FadeUp>
                   );
                 })
               )}
@@ -1289,14 +1289,14 @@ function DashboardContent() {
               }}
               className="pt-2"
             />
-          </div>
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 3: QUẢN LÝ ĐỘI NGŨ THỢ (THÊM / SỬA / KHÓA / XÓA)      */}
         {/* ======================================================== */}
         {activeTab === "barbers" && (
-          <div className="space-y-4">
+          <FadeUp key="barbers" className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
                 Quản lý hồ sơ, quyền hạn và trạng thái làm việc của các thợ cắt
@@ -1483,14 +1483,14 @@ function DashboardContent() {
               }}
               className="pt-2"
             />
-          </div>
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 4: QUẢN LÝ DỊCH VỤ & BẢNG GIÁ (THÊM / SỬA / KHÓA / XÓA) */}
         {/* ======================================================== */}
         {activeTab === "services" && (
-          <div className="space-y-4">
+          <FadeUp key="services" className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
                 Toàn bộ danh mục dịch vụ phục vụ khách hàng của salon
@@ -1651,14 +1651,14 @@ function DashboardContent() {
               }}
               className="pt-2"
             />
-          </div>
+          </FadeUp>
         )}
 
         {/* ======================================================== */}
         {/* TAB 5: QUẢN LÝ KHÁCH HÀNG (THÊM / SỬA / KHÓA / XÓA)      */}
         {/* ======================================================== */}
         {activeTab === "customers" && (
-          <div className="space-y-4">
+          <FadeUp key="customers" className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
                 Danh sách khách hàng đã đăng ký tài khoản trên hệ thống
@@ -1839,7 +1839,7 @@ function DashboardContent() {
               }}
               className="pt-2"
             />
-          </div>
+          </FadeUp>
         )}
       </main>
 

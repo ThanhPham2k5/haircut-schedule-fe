@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useCallback, useRef } from "react";
+import { FadeUp } from "@/components/FadeUp";
 import { Pagination, usePagination } from "@/components/Pagination";
 import Link from "next/link";
 import { isToday, isFuture, isPast, parseISO } from "date-fns";
@@ -345,80 +346,81 @@ function AppointmentsContent() {
           </div>
         ) : (
           <div className="space-y-3">
-            {paging.pageItems.map((b) => {
+            {paging.pageItems.map((b, i) => {
               const barber = barberById.get(b.barberId);
               const canCancel =
                 b.status === "pending" || b.status === "confirmed";
 
               return (
-                <div
-                  key={b.id}
-                  className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-white text-sm">
-                        {b.serviceName}
-                      </span>
-                      <Badge
-                        variant={getStatusBadgeVariant(b.status)}
-                        className="text-[10px]"
-                      >
-                        {getStatusLabel(b.status)}
-                      </Badge>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
-                      <span className="flex items-center gap-1 text-gold font-mono font-medium">
-                        <Clock className="h-3.5 w-3.5" />
-                        {b.time} • Ngày {formatDateVN(b.date)}
-                      </span>
-
-                      <span className="flex items-center gap-1.5">
-                        <UserAvatar
-                          name={barber?.name}
-                          role="barber"
-                          size="sm"
-                        />
-                        <span>
-                          Thợ:{" "}
-                          <strong className="text-slate-300 font-medium">
-                            {barber?.name ?? "—"}
-                          </strong>
+                <FadeUp key={b.id} delay={i * 0.03}>
+                  <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-white text-sm">
+                          {b.serviceName}
                         </span>
-                      </span>
+                        <Badge
+                          variant={getStatusBadgeVariant(b.status)}
+                          className="text-[10px]"
+                        >
+                          {getStatusLabel(b.status)}
+                        </Badge>
+                      </div>
 
-                      <span className="font-mono text-ok font-semibold">
-                        {formatVND(b.price)}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
+                        <span className="flex items-center gap-1 text-gold font-mono font-medium">
+                          <Clock className="h-3.5 w-3.5" />
+                          {b.time} • Ngày {formatDateVN(b.date)}
+                        </span>
+
+                        <span className="flex items-center gap-1.5">
+                          <UserAvatar
+                            name={barber?.name}
+                            role="barber"
+                            size="sm"
+                          />
+                          <span>
+                            Thợ:{" "}
+                            <strong className="text-slate-300 font-medium">
+                              {barber?.name ?? "—"}
+                            </strong>
+                          </span>
+                        </span>
+
+                        <span className="font-mono text-ok font-semibold">
+                          {formatVND(b.price)}
+                        </span>
+                      </div>
+
+                      {b.notes && (
+                        <p className="text-[11px] text-slate-400 italic">
+                          Ghi chú: &ldquo;{b.notes}&rdquo;
+                        </p>
+                      )}
+
+                      <p className="text-[10px] text-slate-500 font-mono">
+                        Mã lịch hẹn: {shortBookingCode(b.id)}
+                      </p>
                     </div>
 
-                    {b.notes && (
-                      <p className="text-[11px] text-slate-400 italic">
-                        Ghi chú: &ldquo;{b.notes}&rdquo;
-                      </p>
-                    )}
-
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      Mã lịch hẹn: {shortBookingCode(b.id)}
-                    </p>
+                    <div>
+                      {canCancel && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={cancellingId === b.id}
+                          onClick={() => handleCancelBooking(b.id)}
+                          className="h-8 px-3 text-xs border-slate-700 hover:text-bad hover:border-rose-500/50"
+                        >
+                          <XCircle className="h-3.5 w-3.5 mr-1" />
+                          {cancellingId === b.id
+                            ? "Đang hủy..."
+                            : "Hủy lịch hẹn"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-
-                  <div>
-                    {canCancel && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={cancellingId === b.id}
-                        onClick={() => handleCancelBooking(b.id)}
-                        className="h-8 px-3 text-xs border-slate-700 hover:text-bad hover:border-rose-500/50"
-                      >
-                        <XCircle className="h-3.5 w-3.5 mr-1" />
-                        {cancellingId === b.id ? "Đang hủy..." : "Hủy lịch hẹn"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                </FadeUp>
               );
             })}
           </div>
